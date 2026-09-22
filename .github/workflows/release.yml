@@ -23,12 +23,6 @@ jobs:
     outputs:
       tag: ${{ steps.meta.outputs.tag }}
       zip: ${{ steps.package.outputs.zip }}
-      zip_sha: ${{ steps.package.outputs.zip_sha }}
-      mgba_sha: ${{ steps.package.outputs.mgba_sha }}
-      mgba_head: ${{ steps.package.outputs.mgba_head }}
-      mgba_patches: ${{ steps.package.outputs.mgba_patches }}
-      gpsp_sha: ${{ steps.package.outputs.gpsp_sha }}
-      gpsp_head: ${{ steps.package.outputs.gpsp_head }}
     steps:
       - uses: actions/checkout@v7
 

@@ -142,6 +142,7 @@ jobs:
           GPSP_METHOD: ${{ steps.package.outputs.gpsp_method }}
         run: |
           set -eu
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           commit_message="$(git log -1 --pretty=%B)"
           commit_short="$(git rev-parse --short=12 HEAD)"
 

@@ -23,6 +23,7 @@ jobs:
     outputs:
       tag: ${{ steps.meta.outputs.tag }}
       zip: ${{ steps.package.outputs.zip }}
+      zip_sha: ${{ steps.package.outputs.zip_sha }}
       mgba_sha: ${{ steps.package.outputs.mgba_sha }}
       mgba_head: ${{ steps.package.outputs.mgba_head }}
       mgba_patches: ${{ steps.package.outputs.mgba_patches }}
@@ -102,6 +103,7 @@ jobs:
           zip -qry "$zip" "$out"
           {
             echo "zip=$zip"
+            echo "zip_sha=$(sha256sum "$zip" | cut -d' ' -f1)"
             # gpSP is recorded rather than pinned: it is whatever the buildbot was serving as
             # latest when this ran, and a release should be able to say which one that was.
             # mGBA is built from the pin in taskfile.yml instead. Both are hashed, so a card
@@ -129,6 +131,7 @@ jobs:
       - name: Generate release notes
         env:
           RELEASE_TAG: ${{ steps.meta.outputs.tag }}
+          ZIP_SHA: ${{ steps.package.outputs.zip_sha }}
           MGBA_SHA: ${{ steps.package.outputs.mgba_sha }}
           MGBA_HEAD: ${{ steps.package.outputs.mgba_head }}
           MGBA_PATCHES: ${{ steps.package.outputs.mgba_patches }}
@@ -140,15 +143,20 @@ jobs:
         run: |
           set -eu
           commit_message="$(git log -1 --pretty=%B)"
+          commit_short="$(git rev-parse --short=12 HEAD)"
 
           cat > notes.md <<NOTES
           ## Changes
 
           ${commit_message}
 
+          Commit: [\`${commit_short}\`](https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA})
+
           ## Build details
 
           Unzip and copy the contents of \`slot-${RELEASE_TAG}/\` onto SD2.
+
+          Release ZIP SHA-256: \`${ZIP_SHA}\`
 
           | | |
           |---|---|
@@ -207,9 +215,16 @@ jobs:
           set -eu
           # --repo because this job never checks out: gh works out where to publish from the
           # git remote otherwise, and there is no repository here to ask.
-          # Re-running an already-published commit should be harmless.
+          # A rerun repairs the release if the first attempt created it but failed while
+          # uploading the asset or writing the final notes.
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release $RELEASE_TAG already exists; skipping."
+            echo "Release $RELEASE_TAG already exists; updating it."
+            gh release edit "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --notes-file notes.md
+            gh release upload "$RELEASE_TAG" "$ZIP" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
             exit 0
           fi
 

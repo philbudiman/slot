@@ -162,7 +162,15 @@ jobs:
           GPSP_METHOD: ${{ needs.build.outputs.gpsp_method }}
         run: |
           set -eu
+          commit_message="$(jq -r '.head_commit.message' "$GITHUB_EVENT_PATH")"
+
           cat > notes.md <<NOTES
+          ## Changes
+
+          ${commit_message}
+
+          ## Build details
+
           Unzip and copy the contents of \`slot-${RELEASE_TAG}/\` onto SD2.
 
           | | |

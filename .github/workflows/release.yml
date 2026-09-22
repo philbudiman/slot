@@ -36,7 +36,7 @@ jobs:
 
       - name: Set release tag
         id: meta
-        run: echo "tag=main-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+        run: echo "tag=main-$(printf '%.12s' "$GITHUB_SHA")" >> "$GITHUB_OUTPUT"
 
       # The image already carries curl, file and unzip, which the fetch and the arch check
       # need. zip is missing, and so is cmake, which core:device builds mGBA with. Bullseye is

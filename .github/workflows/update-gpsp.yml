@@ -25,6 +25,8 @@ jobs:
   check:
     name: validate candidate
     runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+
     # Match the release build: native aarch64 inside Bullseye, so core:gpsp builds the same
     # arm64 core against the same glibc rather than reaching for Docker.
     container: rust:1-bullseye
@@ -41,6 +43,7 @@ jobs:
           # The updater always evaluates the pin on main, even when workflow_dispatch is used
           # to smoke-test this workflow from another branch.
           ref: main
+          persist-credentials: false
 
       # checkout adds safe.directory using a temporary HOME. Container run steps use a
       # different HOME, so trust this one workspace explicitly before reading its git SHA.
@@ -141,8 +144,8 @@ jobs:
           git commit -m "Update gpSP to ${SHORT}"
 
           if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
-            # Fetch the current branch tip so --force-with-lease protects against overwriting
-            # a branch someone changed after this workflow started.
+            # Fetch the current branch tip so --force-with-lease protects against
+            # concurrent changes between this fetch and the push.
             git fetch origin "refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}"
             git push --force-with-lease origin "HEAD:refs/heads/${BRANCH}"
           else

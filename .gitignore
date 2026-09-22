@@ -12,6 +12,7 @@
 /dist
 *.dylib
 *.so
+*.patch
 
 .DS_Store
 /.idea/

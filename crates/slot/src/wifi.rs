@@ -31,21 +31,23 @@ pub struct Network {
 pub struct Snapshot {
     pub networks: Option<Vec<Network>>,
     pub status: String,
+    pub enabled: bool,
 }
 
 // Intentionally not Debug: Connect carries a password.
 pub enum Request {
     Status,
+    Enable,
     Scan,
     Connect(Network, String),
     Reconnect,
-    Disconnect,
+    Disable,
     Forget,
 }
 
 pub struct Service {
     tx: Sender<Request>,
-    rx: Receiver<Result<Snapshot, String>>,
+    rx: Receiver<Snapshot>,
 }
 
 impl Service {
@@ -56,8 +58,29 @@ impl Service {
         let (tx, requests) = mpsc::channel();
         let (results, rx) = mpsc::channel();
         thread::spawn(move || {
-            for request in requests {
-                let result = handle(&root, request);
+            let boot_guard = Instant::now() + Duration::from_secs(20);
+            loop {
+                let request = if !enabled(&root) && Instant::now() < boot_guard {
+                    match requests.recv_timeout(Duration::from_secs(1)) {
+                        Ok(request) => request,
+                        Err(mpsc::RecvTimeoutError::Timeout) => {
+                            // BaseOS can finish its delayed driver retry after Slot starts.
+                            if !other_wifi_active() {
+                                let _ = block_radio();
+                            }
+                            continue;
+                        }
+                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    }
+                } else {
+                    let Ok(request) = requests.recv() else { break };
+                    request
+                };
+                let result = handle(&root, request).unwrap_or_else(|status| Snapshot {
+                    networks: None,
+                    status,
+                    enabled: enabled(&root),
+                });
                 if results.send(result).is_err() {
                     break;
                 }
@@ -68,7 +91,7 @@ impl Service {
     pub fn send(&self, request: Request) -> bool {
         self.tx.send(request).is_ok()
     }
-    pub fn poll(&self) -> Option<Result<Snapshot, String>> {
+    pub fn poll(&self) -> Option<Snapshot> {
         self.rx.try_recv().ok()
     }
 }
@@ -76,8 +99,11 @@ impl Service {
 pub fn saved(root: &Path) -> bool {
     root.join(PROFILE).is_file()
 }
+pub fn enabled(root: &Path) -> bool {
+    !root.join(DISABLED).exists()
+}
 pub fn auto_connect(root: &Path) -> bool {
-    saved(root) && !root.join(DISABLED).exists()
+    saved(root) && enabled(root)
 }
 
 fn command(program: &str, args: &[&str], seconds: u64) -> Result<String, String> {
@@ -151,6 +177,9 @@ fn private_write(path: &Path, bytes: &[u8]) -> Result<(), String> {
 }
 
 fn ensure() -> Result<(), String> {
+    if other_wifi_active() {
+        return Err("Another Wi-Fi service is active; end multiplayer or restart".into());
+    }
     // BaseOS brings up its driver asynchronously; leave Slot responsive during the wait.
     let deadline = Instant::now() + Duration::from_secs(25);
     while !Path::new("/sys/class/net/wlan0").exists() {
@@ -159,14 +188,13 @@ fn ensure() -> Result<(), String> {
         }
         thread::sleep(Duration::from_millis(250));
     }
-    let _ = command("rfkill", &["unblock", "wifi"], 3);
+    command("rfkill", &["unblock", "wifi"], 3)?;
     command("ip", &["link", "set", "wlan0", "up"], 3)?;
     if cli(&["ping"]).is_ok_and(|s| s.trim() == "PONG") {
         return Ok(());
     }
     // Refuse to compete with an existing home or multiplayer connection.
-    if command("pidof", &["wpa_supplicant"], 2).is_ok() || command("pidof", &["hostapd"], 2).is_ok()
-    {
+    if other_wifi_active() {
         return Err("Another Wi-Fi service is active; end multiplayer or restart".into());
     }
     fs::create_dir_all(CONTROL).map_err(|_| "Cannot start Wi-Fi".to_string())?;
@@ -188,12 +216,53 @@ fn ensure() -> Result<(), String> {
     Err("Could not start Wi-Fi".into())
 }
 
+fn other_wifi_active() -> bool {
+    command("pidof", &["hostapd"], 2).is_ok()
+        || (command("pidof", &["wpa_supplicant"], 2).is_ok()
+            && !cli(&["ping"]).is_ok_and(|s| s.trim() == "PONG"))
+}
+
+fn block_radio() -> Result<(), String> {
+    if Path::new("/sys/class/net/wlan0").exists() {
+        let _ = command("ip", &["link", "set", "wlan0", "down"], 3);
+    }
+    command("rfkill", &["block", "wifi"], 3)?;
+    Ok(())
+}
+
 fn handle(root: &Path, request: Request) -> Result<Snapshot, String> {
+    if !enabled(root)
+        && matches!(
+            &request,
+            Request::Scan | Request::Connect(_, _) | Request::Reconnect
+        )
+    {
+        return Err("Turn Wi-Fi on first".into());
+    }
     match request {
         Request::Status => Ok(Snapshot {
             networks: None,
-            status: status()?,
+            status: if enabled(root) {
+                status()?
+            } else {
+                "Wi-Fi off".into()
+            },
+            enabled: enabled(root),
         }),
+        Request::Enable => {
+            if let Err(error) = ensure() {
+                if !other_wifi_active() {
+                    let _ = block_radio();
+                }
+                return Err(error);
+            }
+            remove(&root.join(DISABLED))?;
+            Ok(Snapshot {
+                networks: None,
+                status: status()?,
+                enabled: true,
+            })
+        }
         Request::Scan => {
             ensure()?;
             ok(&["scan"])?;
@@ -201,6 +270,7 @@ fn handle(root: &Path, request: Request) -> Result<Snapshot, String> {
             Ok(Snapshot {
                 networks: Some(parse_scan(&cli(&["scan_results"])?)),
                 status: status()?,
+                enabled: true,
             })
         }
         Request::Connect(network, password) => {
@@ -211,10 +281,10 @@ fn handle(root: &Path, request: Request) -> Result<Snapshot, String> {
             match connect(&profile) {
                 Ok(status) => {
                     private_write(&root.join(PROFILE), profile.as_bytes())?;
-                    remove(&root.join(DISABLED))?;
                     Ok(Snapshot {
                         networks: None,
                         status,
+                        enabled: true,
                     })
                 }
                 Err(error) => {
@@ -235,17 +305,15 @@ fn handle(root: &Path, request: Request) -> Result<Snapshot, String> {
                 .map_err(|_| "No saved network; select one below".to_string())?;
             ensure()?;
             let status = connect(&profile)?;
-            remove(&root.join(DISABLED))?;
             Ok(Snapshot {
                 networks: None,
                 status,
+                enabled: true,
             })
         }
-        Request::Disconnect | Request::Forget => {
+        Request::Disable | Request::Forget => {
             // Only change wlan0 if it belongs to this service.
-            if command("pidof", &["wpa_supplicant"], 2).is_ok()
-                && !cli(&["ping"]).is_ok_and(|s| s.trim() == "PONG")
-            {
+            if other_wifi_active() {
                 return Err("Another Wi-Fi service is active; end multiplayer first".into());
             }
             private_write(&root.join(DISABLED), b"disabled\n")?;
@@ -253,13 +321,18 @@ fn handle(root: &Path, request: Request) -> Result<Snapshot, String> {
                 remove(&root.join(PROFILE))?;
             }
             if cli(&["ping"]).is_ok_and(|s| s.trim() == "PONG") {
-                ok(&["disconnect"])?;
+                let _ = ok(&["disconnect"]);
             }
-            stop_dhcp()?;
-            command("ip", &["addr", "flush", "dev", "wlan0"], 3)?;
+            // Cleanup is best effort; blocking the radio is the required off action.
+            let _ = stop_dhcp();
+            if Path::new("/sys/class/net/wlan0").exists() {
+                let _ = command("ip", &["addr", "flush", "dev", "wlan0"], 3);
+            }
+            block_radio()?;
             Ok(Snapshot {
                 networks: None,
-                status: "Disconnected".into(),
+                status: "Wi-Fi off".into(),
+                enabled: false,
             })
         }
     }
@@ -519,14 +592,34 @@ mod tests {
     fn saving_and_disabling_survive_a_new_read_of_the_card() {
         let root = tempfile::tempdir().unwrap();
         fs::create_dir(root.path().join("System")).unwrap();
+        assert!(enabled(root.path()));
         assert!(!auto_connect(root.path()));
         private_write(&root.path().join(PROFILE), b"profile").unwrap();
         assert!(auto_connect(root.path()));
         private_write(&root.path().join(DISABLED), b"disabled").unwrap();
+        assert!(!enabled(root.path()));
         assert!(!auto_connect(root.path()));
         assert!(saved(root.path()));
+        remove(&root.path().join(DISABLED)).unwrap();
+        assert!(enabled(root.path()));
+        assert!(auto_connect(root.path()));
         remove(&root.path().join(PROFILE)).unwrap();
         assert!(!saved(root.path()));
+    }
+
+    #[test]
+    fn saved_off_choice_rejects_network_work() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir(root.path().join("System")).unwrap();
+        private_write(&root.path().join(DISABLED), b"disabled\n").unwrap();
+        assert_eq!(
+            handle(root.path(), Request::Scan).err().as_deref(),
+            Some("Turn Wi-Fi on first")
+        );
+        assert_eq!(
+            handle(root.path(), Request::Reconnect).err().as_deref(),
+            Some("Turn Wi-Fi on first")
+        );
     }
     #[test]
     fn password_derivation_matches_the_wpa_test_vector() {

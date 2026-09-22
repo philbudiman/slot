@@ -1,7 +1,8 @@
 # Wi-Fi on BaseOS
 
 From Slot's cartridge shelf, press MENU and open **Wi-Fi** (between Date & Time
-and About). The menu scans for visible networks. Select yours and press A.
+and About). The first row turns Wi-Fi on or off. When on, the menu scans for
+visible networks. Select yours and press A.
 
 For a password-protected network, use the D-pad and A to type. **Y** changes
 between lowercase, uppercase and symbols; **X** deletes a character; **START**
@@ -10,9 +11,13 @@ All printable ASCII characters are available. Open networks connect immediately.
 
 The screen reports connection errors or the assigned IP address. It stays responsive
 while scanning or connecting; B returns to settings while the operation finishes.
-Only successful connections replace the saved network. Slot reconnects at boot.
-**Disconnect** suppresses boot reconnection until you connect again; **Forget** also
-removes the saved network. Scanning after disconnect does not reconnect by itself.
+Only successful connections replace the saved network. If Wi-Fi was left on,
+Slot reconnects to a saved network at boot.
+Turning Wi-Fi off disconnects, blocks the radio, and remembers that choice for
+the next boot without removing the saved network. Turn it on to scan or reconnect.
+**Forget** also removes the saved network and turns Wi-Fi off. Opening the menu
+while Wi-Fi is off does not turn it back on. BaseOS briefly enables Wi-Fi during
+boot before Slot can restore the off setting.
 
 Connect your Mac to the same local network, keep the handheld awake, and use an
 SFTP client with the displayed IP, port **22**, username **root**, and the password
@@ -33,8 +38,8 @@ service; Slot refuses to replace another supplicant.
 
 ## Persistence
 
-The active Slot card holds `System/wifi.conf` (one network) and, when disconnected,
-`System/wifi.disabled`. Preserve those files when merging future System updates.
+The active Slot card holds `System/wifi.conf` (one network) and, when Wi-Fi was
+left off, `System/wifi.disabled`. Preserve those files when merging future System updates.
 There is no additional startup script to install. Network work runs on a background
 thread, including automatic reconnection when Slot starts.
 

@@ -17,6 +17,7 @@ pub struct WifiMenu {
     pub status: String,
     pub row: usize,
     pub busy: bool,
+    enabled: bool,
     editing: Option<Network>,
     password: String,
     key: usize,
@@ -33,6 +34,7 @@ impl Default for WifiMenu {
             status: "Wi-Fi requires BaseOS on the handheld".into(),
             row: 0,
             busy: false,
+            enabled: true,
             editing: None,
             password: String::new(),
             key: 0,
@@ -45,10 +47,13 @@ impl Default for WifiMenu {
 
 impl WifiMenu {
     pub fn boot(&mut self, root: &Path) {
+        self.enabled = wifi::enabled(root);
         self.service = Service::start(root.to_path_buf());
         if self.service.is_some() {
             self.status = "Select Scan networks to get started".into();
-            if wifi::auto_connect(root) {
+            if !self.enabled {
+                self.request(Request::Disable, "Turning Wi-Fi off...");
+            } else if wifi::auto_connect(root) {
                 self.request(Request::Reconnect, "Connecting to saved network...");
             }
         }
@@ -60,7 +65,7 @@ impl WifiMenu {
         self.row = 0;
         self.editing = None;
         self.password.clear();
-        if !self.busy {
+        if !self.busy && self.enabled {
             self.request(Request::Scan, "Scanning for networks...");
         }
         self.revision += 1;
@@ -77,18 +82,17 @@ impl WifiMenu {
         self.revision += 1;
     }
     pub fn poll(&mut self, visible: bool) {
-        if let Some(result) = self.service.as_ref().and_then(Service::poll) {
+        if let Some(snapshot) = self.service.as_ref().and_then(Service::poll) {
             self.busy = false;
-            match result {
-                Ok(snapshot) => {
-                    self.status = snapshot.status;
-                    if let Some(networks) = snapshot.networks {
-                        self.networks = networks;
-                    }
-                    self.row = self.row.min(self.networks.len() + 3);
-                }
-                Err(error) => self.status = error,
+            self.status = snapshot.status;
+            self.enabled = snapshot.enabled;
+            if !self.enabled {
+                self.networks.clear();
             }
+            if let Some(networks) = snapshot.networks {
+                self.networks = networks;
+            }
+            self.row = self.row.min(self.networks.len() + 3);
             self.revision += 1;
             self.checked = Instant::now();
         }
@@ -148,10 +152,14 @@ impl WifiMenu {
         match button {
             Btn::Up => self.row = self.row.saturating_sub(1),
             Btn::Down => self.row = (self.row + 1).min(self.networks.len() + 3),
+            Btn::A if !self.enabled && self.row != 0 && self.row != 3 => {
+                self.status = "Turn Wi-Fi on first".into();
+            }
             Btn::A => match self.row {
-                0 => self.request(Request::Scan, "Scanning for networks..."),
-                1 => self.request(Request::Reconnect, "Connecting to saved network..."),
-                2 => self.request(Request::Disconnect, "Disconnecting..."),
+                0 if self.enabled => self.request(Request::Disable, "Turning Wi-Fi off..."),
+                0 => self.request(Request::Enable, "Turning Wi-Fi on..."),
+                1 => self.request(Request::Scan, "Scanning for networks..."),
+                2 => self.request(Request::Reconnect, "Connecting to saved network..."),
                 3 => self.request(Request::Forget, "Forgetting saved network..."),
                 index => {
                     if let Some(network) = self.networks.get(index - 4).cloned() {
@@ -276,9 +284,9 @@ impl WifiMenu {
             );
         } else {
             let mut rows = vec![
+                format!("Wi-Fi: {}", if self.enabled { "On" } else { "Off" }),
                 "Scan networks".into(),
                 "Reconnect saved network".into(),
-                "Disconnect (until reconnected)".into(),
                 "Forget saved network".into(),
             ];
             rows.extend(self.networks.iter().map(|n| {
@@ -393,6 +401,19 @@ pub(crate) fn text(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn saved_off_choice_does_not_scan_when_the_menu_opens() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("System")).unwrap();
+        std::fs::write(root.path().join("System/wifi.disabled"), b"disabled\n").unwrap();
+        let mut menu = WifiMenu::default();
+        menu.boot(root.path());
+        assert!(!menu.enabled);
+        menu.open();
+        menu.row = 1;
+        menu.input(Btn::A);
+        assert_eq!(menu.status, "Turn Wi-Fi on first");
+    }
     #[test]
     fn wifi_face_matches_the_compositor_without_rescaling() {
         let face = WifiMenu::default().face();

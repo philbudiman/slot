@@ -46,6 +46,9 @@ pub fn run() {
             return;
         }
         frontend.advance(&mut input);
+        if frontend.updated() {
+            return; // BaseOS respawns frontend-session and launches the new binary.
+        }
         if frontend.restarting() {
             frontend.restart();
         }

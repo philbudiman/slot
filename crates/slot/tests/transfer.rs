@@ -9,8 +9,62 @@ fn setup() -> (tempfile::TempDir, Server) {
     for folder in FOLDERS {
         fs::create_dir_all(root.path().join(folder)).unwrap();
     }
+    fs::create_dir(root.path().join("System")).unwrap();
+    fs::write(root.path().join("System/slot"), b"current").unwrap();
     let server = Server::start(root.path(), Ipv4Addr::LOCALHOST, 0).unwrap();
     (root, server)
+}
+#[test]
+fn test_build_is_staged_without_replacing_slot() {
+    let (root, server) = setup();
+    assert_eq!(
+        request(&server, "PUT", "/api/build", b"bad", "", true).0,
+        400
+    );
+    assert!(!server.status().build_ready);
+    let mut binary = vec![0u8; 20];
+    binary[..4].copy_from_slice(b"\x7fELF");
+    binary[4] = 2;
+    binary[5] = 1;
+    binary[18..20].copy_from_slice(&[183, 0]);
+    assert_eq!(
+        request(&server, "PUT", "/api/build", &binary, "", true).0,
+        201
+    );
+    assert!(server.status().build_ready);
+    assert_eq!(
+        fs::read(root.path().join("System/slot.upload")).unwrap(),
+        binary
+    );
+    assert_eq!(
+        fs::read(root.path().join("System/slot")).unwrap(),
+        b"current"
+    );
+    assert_eq!(
+        request(
+            &server,
+            "PUT",
+            "/api/file?dir=System&name=slot",
+            b"bad",
+            "",
+            true
+        )
+        .0,
+        403
+    );
+}
+
+#[test]
+fn test_build_cannot_write_through_a_system_symlink() {
+    let (root, server) = setup();
+    let outside = tempfile::tempdir().unwrap();
+    fs::remove_dir_all(root.path().join("System")).unwrap();
+    std::os::unix::fs::symlink(outside.path(), root.path().join("System")).unwrap();
+    assert_eq!(
+        request(&server, "PUT", "/api/build", b"binary", "", true).0,
+        403
+    );
+    assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
 }
 fn request(
     server: &Server,

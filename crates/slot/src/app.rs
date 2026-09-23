@@ -382,6 +382,7 @@ pub enum Phase {
     /// looked at and there is nothing else on it. Opened from the quick menu, and left back
     /// to it.
     About,
+    Update,
     Wifi,
     FileTransfer,
     Doze {
@@ -394,6 +395,8 @@ pub struct App {
     pub transfer_face: Option<TexId>,
     pub wifi: crate::wifi_menu::WifiMenu,
     pub wifi_face: Option<TexId>,
+    pub update: crate::update::UpdateMenu,
+    pub update_face: Option<TexId>,
     phase: Phase,
     /// One carousel per platform, in `Platform::ALL` order, which is the order the shoulders
     /// ring through them. Every platform is held whether or not it has a cart on it — an empty
@@ -569,6 +572,7 @@ pub struct App {
     quick_clock_faces: Option<[(TexId, u32, u32); 2]>,
     /// The label, rasterised whole. Re-uploaded when the gauge moves.
     sticker_face: Option<TexId>,
+    about_hint: Option<(TexId, u32, u32)>,
     /// One picture from `Wallpapers`, behind everything the shelf draws. `None` on a card
     /// that carries none, which is the common case.
     wallpaper: Option<TexId>,
@@ -650,6 +654,8 @@ impl App {
             transfer_face: None,
             wifi: crate::wifi_menu::WifiMenu::default(),
             wifi_face: None,
+            update: crate::update::UpdateMenu::default(),
+            update_face: None,
             radio: radio_jobs(),
             phase: Phase::Shelf,
             shelves,
@@ -705,6 +711,7 @@ impl App {
             quick_menu_faces: None,
             quick_clock_faces: None,
             sticker_face: None,
+            about_hint: None,
             wallpaper: None,
             battery_percent: slot_ui::Printed::default(),
             bolt: None,
@@ -952,6 +959,10 @@ impl App {
 
     pub fn set_sticker_face(&mut self, face: TexId) {
         self.sticker_face = Some(face);
+    }
+
+    pub fn set_about_hint(&mut self, hint: (TexId, u32, u32)) {
+        self.about_hint = Some(hint);
     }
 
     pub fn set_clock_faces(&mut self, line: TexId, hint: TexId) {
@@ -1715,13 +1726,42 @@ impl App {
                     row: QuickRow::About,
                 }
             }
+            Phase::About if action == Action::GbaDown(Btn::A) => {
+                self.update.open(self.root.as_deref());
+                self.phase = Phase::Update;
+            }
+            Phase::Update => match action {
+                Action::QuickMenu | Action::GbaDown(Btn::B) if !self.update.downloading() => {
+                    self.phase = Phase::About;
+                }
+                Action::GbaDown(Btn::Up) => self.update.press(false, self.now()),
+                Action::GbaDown(Btn::Down) => self.update.press(true, self.now()),
+                Action::GbaUp(Btn::Up) => self.update.release(false),
+                Action::GbaUp(Btn::Down) => self.update.release(true),
+                Action::GbaDown(Btn::Left) => self.update.jump(false),
+                Action::GbaDown(Btn::Right) => self.update.jump(true),
+                Action::GbaDown(Btn::A) if !self.update.busy() => {
+                    if self.update.failed() {
+                        self.update.open(self.root.as_deref());
+                    } else {
+                        self.update.confirm(self.root.as_deref());
+                    }
+                }
+                _ => {}
+            },
             Phase::QuickMenu { row } => self.quick_menu_input(row, action),
             Phase::FileTransfer => match action {
+                Action::GbaDown(Btn::B) if self.transfer.confirming() => {
+                    self.transfer.cancel_confirmation();
+                }
                 Action::QuickMenu | Action::GbaDown(Btn::B) => {
                     self.transfer.stop();
                     self.phase = Phase::QuickMenu {
                         row: QuickRow::FileTransfer,
                     };
+                }
+                Action::GbaDown(Btn::A) if self.transfer.running() => {
+                    self.transfer.confirm_build();
                 }
                 Action::GbaDown(Btn::A) if !self.transfer.running() => {
                     self.transfer.open(self.root.as_deref(), &self.wifi.status);
@@ -2112,6 +2152,10 @@ impl App {
     fn timers(&mut self) {
         self.transfer.poll();
         self.wifi.poll(matches!(self.phase, Phase::Wifi));
+        self.update.poll();
+        if matches!(self.phase, Phase::Update) {
+            self.update.tick(self.now());
+        }
         self.play_hold();
         // The grace period can run out with the switcher open, so the hint answers to the
         // clock rather than to whatever was on offer on the way in.
@@ -2406,6 +2450,19 @@ impl App {
                 }
                 return;
             }
+            Phase::Update => {
+                if let Some(tex) = self.update_face {
+                    out.push(Draw::Tex {
+                        x: 0.0,
+                        y: 0.0,
+                        w: OUT_W as f32,
+                        h: OUT_H as f32,
+                        tex,
+                        alpha: 1.0,
+                    });
+                }
+                return;
+            }
             // Nothing else is on screen and nothing goes over it, the HUD included: the
             // levels are unreachable here and there is no game to say anything about.
             Phase::SetClock {
@@ -2466,6 +2523,16 @@ impl App {
                 // photograph — it is there for the carts for exactly the same reason.
                 draw_backdrop(self.wallpaper, out);
                 draw_sticker(self.sticker_face, out);
+                if let Some((tex, w, h)) = self.about_hint {
+                    out.push(Draw::Tex {
+                        x: (OUT_W - w) as f32 / 2.0,
+                        y: 428.0,
+                        w: w as f32,
+                        h: h as f32,
+                        tex,
+                        alpha: 1.0,
+                    });
+                }
                 return;
             }
             // The shelf recedes behind the cart on the way in; on the way out the live

@@ -325,6 +325,13 @@
         <span id="count" class="size"></span>
       </div>
       <div id="list"></div>
+      <div class="card" style="margin-top: 32px">
+        <h2>Install a test build</h2>
+        <p>Choose the standalone <code>slot-h700</code> binary from a branch build. Confirm installation on your handheld after the upload.</p>
+        <button id="build-choose" class="primary">Choose Slot binary</button>
+        <input id="build-file" type="file" hidden />
+        <progress id="build-progress" max="100" value="0" hidden aria-label="Test build upload progress"></progress>
+      </div>
     </section>
   </main>
   <dialog id="replace-dialog" aria-labelledby="replace-title">
@@ -358,7 +365,7 @@
     }
     function lock(value) {
       busy = value;
-      for (const id of ["folder", "refresh", "choose"]) $(id).disabled = value;
+      for (const id of ["folder", "refresh", "choose", "build-choose"]) $(id).disabled = value;
       document
         .querySelectorAll("#list button")
         .forEach((b) => (b.disabled = value));
@@ -429,15 +436,15 @@
         lock(false);
       }
     }
-    function upload(file, replace) {
+    function upload(file, replace, route = url("file", file.name, replace), progressId = "progress") {
       return new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
-        xhr.open("PUT", url("file", file.name, replace));
+        xhr.open("PUT", route);
         xhr.setRequestHeader("X-Slot-Pin", pin);
         xhr.timeout = 10 * 60 * 1000;
         xhr.upload.onprogress = (e) => {
           if (e.lengthComputable)
-            $("progress").value = (e.loaded / e.total) * 100;
+            $(progressId).value = (e.loaded / e.total) * 100;
         };
         xhr.onload = () => {
           if (xhr.status === 201) resolve();
@@ -547,6 +554,27 @@
         $("files").value = "";
       }
     }
+    async function sendBuild(file) {
+      if (busy || !file) return;
+      if (file.size === 0 || file.size > maxSize) {
+        message("Choose a nonempty Slot binary up to 128 MB.", true);
+        return;
+      }
+      lock(true);
+      $("build-progress").hidden = false;
+      $("build-progress").value = 0;
+      message("Uploading test build…");
+      try {
+        await upload(file, false, "/api/build", "build-progress");
+        message("Test build uploaded. Press A on the handheld to review installation.");
+      } catch (e) {
+        message(e.message, true);
+      } finally {
+        lock(false);
+        $("build-progress").hidden = true;
+        $("build-file").value = "";
+      }
+    }
     $("login-form").onsubmit = async (e) => {
       e.preventDefault();
       pin = $("pin").value.trim();
@@ -591,6 +619,8 @@
     };
     $("choose").onclick = () => $("files").click();
     $("files").onchange = () => send([...$("files").files]);
+    $("build-choose").onclick = () => $("build-file").click();
+    $("build-file").onchange = () => sendBuild($("build-file").files[0]);
     for (const event of ["dragenter", "dragover"])
       $("drop").addEventListener(event, (e) => {
         e.preventDefault();

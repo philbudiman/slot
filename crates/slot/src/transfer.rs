@@ -24,6 +24,7 @@ const PAGE: &str = include_str!("transfer.html");
 pub struct Status {
     pub message: String,
     pub uploaded: u64,
+    pub build_ready: bool,
 }
 
 struct Shared {
@@ -40,6 +41,10 @@ pub struct Server {
 impl Server {
     pub fn start(root: &Path, ip: Ipv4Addr, port: u16) -> io::Result<Self> {
         let root = root.canonicalize()?;
+        let system = root.join("System");
+        if system.canonicalize().ok().as_deref() == Some(system.as_path()) {
+            let _ = fs::remove_file(system.join("slot.upload"));
+        }
         let listener = TcpListener::bind((ip, port))?;
         listener.set_nonblocking(true)?;
         let address = listener.local_addr()?;
@@ -51,6 +56,7 @@ impl Server {
             status: Status {
                 message: "Ready for your browser".into(),
                 uploaded: 0,
+                build_ready: false,
             },
         }));
         let worker_shared = shared.clone();
@@ -241,6 +247,9 @@ fn serve(
             "Enter the eight-digit code shown on your handheld",
         );
     }
+    if path == "/api/build" && method == "PUT" {
+        return upload_build(stream, root, pin, length, &bytes[end..], shared);
+    }
     let Some((route, params)) = path.split_once('?') else {
         return error(stream, 404, "Not found");
     };
@@ -389,6 +398,58 @@ fn serve(
         }
         _ => error(stream, 400, "Unsupported request"),
     }
+}
+
+fn upload_build(
+    stream: &mut TcpStream,
+    root: &Path,
+    pin: &str,
+    length: u64,
+    first: &[u8],
+    shared: &Arc<Mutex<Shared>>,
+) -> io::Result<()> {
+    if length == 0 || length > MAX_FILE {
+        return error(stream, 413, "Choose a nonempty Slot binary up to 128 MB");
+    }
+    let system = root.join("System");
+    if system.canonicalize().ok().as_deref() != Some(system.as_path())
+        || !fs::symlink_metadata(system.join("slot")).is_ok_and(|m| m.is_file())
+    {
+        return error(stream, 403, "Slot System folder is unavailable");
+    }
+    let temp = system.join(format!(".slot-upload-{pin}.part"));
+    let Ok(mut file) = OpenOptions::new().write(true).create_new(true).open(&temp) else {
+        return error(
+            stream,
+            500,
+            "Cannot create upload; check free space on the SD card",
+        );
+    };
+    let cleanup = Temporary(temp.clone());
+    shared.lock().unwrap().status.message = "Receiving test build".into();
+    let outcome = receive(stream, &mut file, first, length, shared).and_then(|_| file.sync_all());
+    drop(file);
+    if outcome.is_err() {
+        shared.lock().unwrap().status.message = "Test build upload interrupted".into();
+        return error(stream, 500, "Upload interrupted; try again");
+    }
+    if let Err(message) = crate::update::verify_local(&temp) {
+        shared.lock().unwrap().status.message = message.clone();
+        return error(stream, 400, &message);
+    }
+    let mut state = shared.lock().unwrap();
+    if state.stopped {
+        return Ok(());
+    }
+    if fs::rename(&temp, system.join("slot.upload")).is_err() {
+        return error(stream, 500, "Could not save test build");
+    }
+    state.status.build_ready = true;
+    state.status.message = "Test build ready. Confirm on handheld.".into();
+    drop(state);
+    let _ = File::open(&system).and_then(|f| f.sync_all());
+    drop(cleanup);
+    response(stream, 201, "application/json", b"{\"ok\":true}")
 }
 
 struct Temporary(PathBuf);

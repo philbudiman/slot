@@ -1751,11 +1751,17 @@ impl App {
             },
             Phase::QuickMenu { row } => self.quick_menu_input(row, action),
             Phase::FileTransfer => match action {
+                Action::GbaDown(Btn::B) if self.transfer.confirming() => {
+                    self.transfer.cancel_confirmation();
+                }
                 Action::QuickMenu | Action::GbaDown(Btn::B) => {
                     self.transfer.stop();
                     self.phase = Phase::QuickMenu {
                         row: QuickRow::FileTransfer,
                     };
+                }
+                Action::GbaDown(Btn::A) if self.transfer.running() => {
+                    self.transfer.confirm_build();
                 }
                 Action::GbaDown(Btn::A) if !self.transfer.running() => {
                     self.transfer.open(self.root.as_deref(), &self.wifi.status);

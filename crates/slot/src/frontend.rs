@@ -488,7 +488,7 @@ impl Frontend {
     }
 
     pub fn updated(&self) -> bool {
-        self.session.app().update.installed()
+        self.session.app().update.installed() || self.session.app().transfer.installed()
     }
 
     pub fn restart(&mut self) {

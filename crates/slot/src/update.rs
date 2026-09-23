@@ -14,7 +14,7 @@ use crate::wifi_menu::{fill, text};
 
 const API: &str = "https://api.github.com/repos/philbudiman/slot/releases/latest";
 const ASSET: &str = "slot-h700";
-const MAX_SIZE: u64 = 128 * 1024 * 1024;
+pub(crate) const MAX_SIZE: u64 = 128 * 1024 * 1024;
 
 #[derive(Clone)]
 struct Release {
@@ -432,6 +432,13 @@ fn install(root: &Path, release: &Release) -> Result<ResultMessage, String> {
 }
 
 fn activate(target: &Path, backup: &Path, pending: &Path) -> Result<(), String> {
+    if fs::symlink_metadata(backup).is_ok_and(|m| !m.is_file()) {
+        return Err("Slot backup is not a regular file".into());
+    }
+    let permissions = fs::metadata(target)
+        .map_err(|_| "Slot binary missing".to_string())?
+        .permissions();
+    fs::set_permissions(pending, permissions).map_err(|_| "Could not make Slot executable")?;
     fs::copy(target, backup).map_err(|_| "Could not back up Slot".to_string())?;
     File::open(backup)
         .and_then(|f| f.sync_all())
@@ -449,13 +456,7 @@ fn verify(path: &Path, asset: &Asset) -> Result<(), String> {
     {
         return Err("Downloaded binary size differs".into());
     }
-    let mut header = [0u8; 20];
-    file.read_exact(&mut header)
-        .map_err(|_| "Downloaded binary is incomplete")?;
-    if &header[..4] != b"\x7fELF" || header[4] != 2 || header[5] != 1 || header[18..20] != [183, 0]
-    {
-        return Err("Downloaded binary is not AArch64 Slot".into());
-    }
+    verify_header(&mut file)?;
     let output = Command::new("sha256sum")
         .arg(path)
         .output()
@@ -465,6 +466,48 @@ fn verify(path: &Path, asset: &Asset) -> Result<(), String> {
     }
     file.sync_all()
         .map_err(|_| "Could not save download".to_string())?;
+    Ok(())
+}
+
+fn verify_header(file: &mut File) -> Result<(), String> {
+    let mut header = [0u8; 20];
+    file.read_exact(&mut header)
+        .map_err(|_| "Downloaded binary is incomplete")?;
+    if &header[..4] != b"\x7fELF" || header[4] != 2 || header[5] != 1 || header[18..20] != [183, 0]
+    {
+        return Err("Downloaded binary is not AArch64 Slot".into());
+    }
+    Ok(())
+}
+
+pub(crate) fn install_local(root: &Path) -> Result<(), String> {
+    let root = root
+        .canonicalize()
+        .map_err(|_| "Slot card is unavailable")?;
+    let system = root.join("System");
+    if system.canonicalize().ok().as_deref() != Some(system.as_path()) {
+        return Err("Slot System folder is unavailable".into());
+    }
+    let target = system.join("slot");
+    let pending = system.join("slot.upload");
+    if !fs::symlink_metadata(&target).is_ok_and(|m| m.is_file())
+        || !fs::symlink_metadata(&pending).is_ok_and(|m| m.is_file())
+    {
+        return Err("Test build or Slot binary missing".into());
+    }
+    verify_local(&pending)?;
+    activate(&target, &system.join("slot.previous"), &pending)
+}
+
+pub(crate) fn verify_local(pending: &Path) -> Result<(), String> {
+    let mut file = File::open(pending).map_err(|_| "Test build missing")?;
+    let len = file.metadata().map_err(|_| "Test build missing")?.len();
+    if len == 0 || len > MAX_SIZE {
+        return Err("Test build size is invalid".into());
+    }
+    verify_header(&mut file)?;
+    file.sync_all()
+        .map_err(|_| "Could not save test build".to_string())?;
     Ok(())
 }
 
@@ -487,16 +530,51 @@ mod tests {
 
     #[test]
     fn activation_keeps_a_bootable_binary_and_backup() {
+        use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let old = dir.path().join("slot");
         let previous = dir.path().join("slot.previous");
         let pending = dir.path().join("slot.download");
         fs::write(&old, b"old").unwrap();
+        fs::set_permissions(&old, fs::Permissions::from_mode(0o755)).unwrap();
         fs::write(&pending, b"new").unwrap();
         activate(&old, &previous, &pending).unwrap();
         assert_eq!(fs::read(&old).unwrap(), b"new");
         assert_eq!(fs::read(&previous).unwrap(), b"old");
+        assert_eq!(
+            fs::metadata(&old).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
         assert!(!pending.exists());
+    }
+
+    #[test]
+    fn local_install_rejects_invalid_build_and_preserves_current_slot() {
+        let dir = tempfile::tempdir().unwrap();
+        let system = dir.path().join("System");
+        fs::create_dir(&system).unwrap();
+        fs::write(system.join("slot"), b"current").unwrap();
+        fs::write(system.join("slot.upload"), b"bad").unwrap();
+        assert!(install_local(dir.path()).is_err());
+        assert_eq!(fs::read(system.join("slot")).unwrap(), b"current");
+        assert!(!system.join("slot.previous").exists());
+    }
+
+    #[test]
+    fn local_install_replaces_slot_after_validation() {
+        let dir = tempfile::tempdir().unwrap();
+        let system = dir.path().join("System");
+        fs::create_dir(&system).unwrap();
+        fs::write(system.join("slot"), b"current").unwrap();
+        let mut binary = vec![0u8; 20];
+        binary[..4].copy_from_slice(b"\x7fELF");
+        binary[4] = 2;
+        binary[5] = 1;
+        binary[18..20].copy_from_slice(&[183, 0]);
+        fs::write(system.join("slot.upload"), &binary).unwrap();
+        install_local(dir.path()).unwrap();
+        assert_eq!(fs::read(system.join("slot")).unwrap(), binary);
+        assert_eq!(fs::read(system.join("slot.previous")).unwrap(), b"current");
     }
 
     #[test]

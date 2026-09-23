@@ -83,10 +83,10 @@ impl TransferMenu {
         self.message = match self.root.as_deref().map(crate::update::install_local) {
             Some(Ok(())) => {
                 self.installed = true;
-                "Test build installed. Restarting Slot...".into()
+                "Test build installed. Restarting Slot+...".into()
             }
             Some(Err(message)) => message,
-            None => "Slot card is unavailable".into(),
+            None => "Slot+ card is unavailable".into(),
         };
         self.revision += 1;
     }
@@ -189,11 +189,11 @@ impl TransferMenu {
             text(
                 &mut face,
                 if self.confirm {
-                    "Replace Slot with this test build?"
+                    "Replace Slot+ with this test build?"
                 } else if self.build_ready {
                     "Test build uploaded"
                 } else {
-                    "Restart Slot after adding games or labels."
+                    "Restart Slot+ after adding games or labels."
                 },
                 28,
                 389,

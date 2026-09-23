@@ -4,11 +4,11 @@ Wi-Fi is supported in Slot+ on current BaseOS releases, and AGS-102 remains supp
 
 ## Connecting
 
-From Slot+'s cartridge shelf, press MENU and open **Wi-Fi**. The first row turns Wi-Fi on or off. When on, the menu scans for visible networks. Select yours and press A.
+From Slot+'s cartridge shelf, press MENU and open **Wi-Fi**. The first row turns Wi-Fi on or off. When on, the menu scans for visible networks. Press **X** to scan again, then select a network and press **A**.
 
 For a password-protected network, use the D-pad and A to type. **Y** changes between lowercase, uppercase, and symbols; **X** deletes a character; **START** connects; **B** cancels. Passwords are case-sensitive. The `SP` key inserts a space. All printable ASCII characters are available. Open networks connect immediately.
 
-The screen reports connection errors or the assigned IP address. It stays responsive while scanning or connecting; B returns to settings while the operation finishes. Only successful connections replace the saved network. If Wi-Fi was left on, Slot+ reconnects to a saved network at boot.
+The screen reports connection errors or the assigned IP address. It stays responsive while scanning or connecting; B returns to settings while the operation finishes. Slot+ saves one network; a successful connection replaces the previous one. If Wi-Fi was left on, Slot+ reconnects to that network at boot.
 
 Turning Wi-Fi off disconnects, blocks the radio, and remembers that choice for the next boot without removing the saved network. Turn it on to scan or reconnect. **Forget** also removes the saved network and turns Wi-Fi off. Opening the menu while Wi-Fi is off does not turn it back on. BaseOS briefly enables Wi-Fi during boot before Slot+ can restore the off setting.
 

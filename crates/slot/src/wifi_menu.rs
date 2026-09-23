@@ -50,7 +50,7 @@ impl WifiMenu {
         self.enabled = wifi::enabled(root);
         self.service = Service::start(root.to_path_buf());
         if self.service.is_some() {
-            self.status = "Select Scan networks to get started".into();
+            self.status = "Press X to scan networks".into();
             if !self.enabled {
                 self.request(Request::Disable, "Turning Wi-Fi off...");
             } else if wifi::auto_connect(root) {
@@ -92,7 +92,7 @@ impl WifiMenu {
             if let Some(networks) = snapshot.networks {
                 self.networks = networks;
             }
-            self.row = self.row.min(self.networks.len() + 3);
+            self.row = self.row.min(self.networks.len() + 2);
             self.revision += 1;
             self.checked = Instant::now();
         }
@@ -151,18 +151,19 @@ impl WifiMenu {
         }
         match button {
             Btn::Up => self.row = self.row.saturating_sub(1),
-            Btn::Down => self.row = (self.row + 1).min(self.networks.len() + 3),
-            Btn::A if !self.enabled && self.row != 0 && self.row != 3 => {
+            Btn::Down => self.row = (self.row + 1).min(self.networks.len() + 2),
+            Btn::X if !self.enabled => self.status = "Turn Wi-Fi on first".into(),
+            Btn::X => self.request(Request::Scan, "Scanning for networks..."),
+            Btn::A if !self.enabled && self.row != 0 && self.row != 2 => {
                 self.status = "Turn Wi-Fi on first".into();
             }
             Btn::A => match self.row {
                 0 if self.enabled => self.request(Request::Disable, "Turning Wi-Fi off..."),
                 0 => self.request(Request::Enable, "Turning Wi-Fi on..."),
-                1 => self.request(Request::Scan, "Scanning for networks..."),
-                2 => self.request(Request::Reconnect, "Connecting to saved network..."),
-                3 => self.request(Request::Forget, "Forgetting saved network..."),
+                1 => self.request(Request::Reconnect, "Connecting to saved network..."),
+                2 => self.request(Request::Forget, "Forgetting saved network..."),
                 index => {
-                    if let Some(network) = self.networks.get(index - 4).cloned() {
+                    if let Some(network) = self.networks.get(index - 3).cloned() {
                         match network.security {
                             Security::Open => self
                                 .request(Request::Connect(network, String::new()), "Connecting..."),
@@ -285,7 +286,6 @@ impl WifiMenu {
         } else {
             let mut rows = vec![
                 format!("Wi-Fi: {}", if self.enabled { "On" } else { "Off" }),
-                "Scan networks".into(),
                 "Reconnect saved network".into(),
                 "Forget saved network".into(),
             ];
@@ -337,7 +337,7 @@ impl WifiMenu {
                 if self.busy {
                     "Working...   B Back"
                 } else {
-                    "Up/Down Choose   A Select   B Back"
+                    "Up/Down Choose   A Select   X Scan   B Back"
                 },
                 28,
                 433,
@@ -413,6 +413,8 @@ mod tests {
         menu.row = 1;
         menu.input(Btn::A);
         assert_eq!(menu.status, "Turn Wi-Fi on first");
+        menu.input(Btn::X);
+        assert_eq!(menu.status, "Turn Wi-Fi on first");
     }
     #[test]
     fn wifi_face_matches_the_compositor_without_rescaling() {
@@ -440,7 +442,7 @@ mod tests {
             signal: -30,
             security: Security::Personal,
         });
-        menu.row = 4;
+        menu.row = 3;
         menu.input(Btn::A);
         menu.input(Btn::A);
         assert_eq!(menu.password, "a");

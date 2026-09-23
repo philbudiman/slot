@@ -7,6 +7,7 @@ use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::thread;
 
 use serde_json::Value;
+use slot_input::Millis;
 use slot_ui::{UndoFace, OUT_H, OUT_W};
 
 use crate::wifi_menu::{fill, text};
@@ -47,6 +48,14 @@ pub struct UpdateMenu {
     worker: Option<Receiver<Result<ResultMessage, String>>>,
     revision: u64,
     scroll: usize,
+    hold: Option<Hold>,
+}
+
+#[derive(Clone, Copy)]
+struct Hold {
+    down: bool,
+    since: Millis,
+    next: Millis,
 }
 
 impl Default for UpdateMenu {
@@ -56,6 +65,7 @@ impl Default for UpdateMenu {
             worker: None,
             revision: 1,
             scroll: 0,
+            hold: None,
         }
     }
 }
@@ -65,6 +75,7 @@ impl UpdateMenu {
         self.revision += 1;
         self.state = State::Checking;
         self.scroll = 0;
+        self.hold = None;
         if root.is_none() || !cfg!(feature = "device") {
             self.state = State::Error("Updates require Slot on BaseOS".into());
             return;
@@ -83,6 +94,7 @@ impl UpdateMenu {
         let release = release.clone();
         let root = root.to_path_buf();
         self.state = State::Downloading;
+        self.hold = None;
         self.revision += 1;
         self.worker = Some(spawn(move || install(&root, &release)));
     }
@@ -135,6 +147,51 @@ impl UpdateMenu {
             self.scroll.saturating_sub(1)
         };
         if next != self.scroll {
+            self.scroll = next;
+            self.revision += 1;
+        }
+    }
+
+    pub fn press(&mut self, down: bool, now: Millis) {
+        if self.hold.is_some_and(|hold| hold.down == down) {
+            return;
+        }
+        self.scroll(down);
+        self.hold = Some(Hold {
+            down,
+            since: now,
+            next: now + 350,
+        });
+    }
+
+    pub fn release(&mut self, down: bool) {
+        if self.hold.is_some_and(|hold| hold.down == down) {
+            self.hold = None;
+        }
+    }
+
+    pub fn tick(&mut self, now: Millis) {
+        let Some(mut hold) = self.hold else { return };
+        if now >= hold.next {
+            self.scroll(hold.down);
+            let elapsed = now.saturating_sub(hold.since);
+            let interval = 200u64.saturating_sub(elapsed / 20).max(50);
+            hold.next = now + interval;
+            self.hold = Some(hold);
+        }
+    }
+
+    pub fn jump(&mut self, bottom: bool) {
+        let notes = match &self.state {
+            State::Available(release) | State::UpToDate(release) => &release.notes,
+            _ => return,
+        };
+        let next = if bottom {
+            notes.len().saturating_sub(10)
+        } else {
+            0
+        };
+        if self.scroll != next {
             self.scroll = next;
             self.revision += 1;
         }
@@ -214,6 +271,15 @@ impl UpdateMenu {
                     [240, 240, 244],
                 );
             }
+            text(
+                &mut face,
+                "Left Top   Right Bottom   Hold Up/Down",
+                28,
+                408,
+                18.0,
+                width,
+                [185, 190, 200],
+            );
         }
         text(&mut face, hint, 28, 433, 20.0, width, [240, 240, 244]);
         face
@@ -434,5 +500,32 @@ mod tests {
         assert_eq!(menu.scroll, 5);
         menu.scroll(false);
         assert_eq!(menu.scroll, 4);
+    }
+
+    #[test]
+    fn notes_hold_accelerates_and_left_right_jump() {
+        let mut menu = UpdateMenu::default();
+        menu.state = State::Available(Release {
+            tag: "main-012345abcdef".into(),
+            notes: (0..30).map(|n| format!("line {n}")).collect(),
+            asset: None,
+        });
+        menu.press(true, 0);
+        assert_eq!(menu.scroll, 1);
+        menu.tick(349);
+        assert_eq!(menu.scroll, 1);
+        menu.tick(350);
+        assert_eq!(menu.scroll, 2);
+        let first_interval = menu.hold.unwrap().next - 350;
+        menu.tick(2_000);
+        assert!(menu.hold.unwrap().next - 2_000 < first_interval);
+        menu.release(true);
+        let stopped = menu.scroll;
+        menu.tick(3_000);
+        assert_eq!(menu.scroll, stopped);
+        menu.jump(true);
+        assert_eq!(menu.scroll, 20);
+        menu.jump(false);
+        assert_eq!(menu.scroll, 0);
     }
 }

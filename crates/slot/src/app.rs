@@ -1734,8 +1734,12 @@ impl App {
                 Action::QuickMenu | Action::GbaDown(Btn::B) if !self.update.downloading() => {
                     self.phase = Phase::About;
                 }
-                Action::GbaDown(Btn::Up) => self.update.scroll(false),
-                Action::GbaDown(Btn::Down) => self.update.scroll(true),
+                Action::GbaDown(Btn::Up) => self.update.press(false, self.now()),
+                Action::GbaDown(Btn::Down) => self.update.press(true, self.now()),
+                Action::GbaUp(Btn::Up) => self.update.release(false),
+                Action::GbaUp(Btn::Down) => self.update.release(true),
+                Action::GbaDown(Btn::Left) => self.update.jump(false),
+                Action::GbaDown(Btn::Right) => self.update.jump(true),
                 Action::GbaDown(Btn::A) if !self.update.busy() => {
                     if self.update.failed() {
                         self.update.open(self.root.as_deref());
@@ -2143,6 +2147,9 @@ impl App {
         self.transfer.poll();
         self.wifi.poll(matches!(self.phase, Phase::Wifi));
         self.update.poll();
+        if matches!(self.phase, Phase::Update) {
+            self.update.tick(self.now());
+        }
         self.play_hold();
         // The grace period can run out with the switcher open, so the hint answers to the
         // clock rather than to whatever was on offer on the way in.

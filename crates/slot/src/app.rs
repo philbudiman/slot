@@ -1734,6 +1734,8 @@ impl App {
                 Action::QuickMenu | Action::GbaDown(Btn::B) if !self.update.downloading() => {
                     self.phase = Phase::About;
                 }
+                Action::GbaDown(Btn::Up) => self.update.scroll(false),
+                Action::GbaDown(Btn::Down) => self.update.scroll(true),
                 Action::GbaDown(Btn::A) if !self.update.busy() => {
                     if self.update.failed() {
                         self.update.open(self.root.as_deref());

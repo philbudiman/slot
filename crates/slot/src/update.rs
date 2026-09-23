@@ -18,12 +18,18 @@ const MAX_SIZE: u64 = 128 * 1024 * 1024;
 #[derive(Clone)]
 struct Release {
     tag: String,
+    notes: Vec<String>,
+    asset: Option<Asset>,
+}
+
+#[derive(Clone)]
+struct Asset {
     digest: String,
     size: u64,
 }
 
 enum ResultMessage {
-    Checked(Option<Release>),
+    Checked(Release, bool),
     Installed,
 }
 
@@ -31,7 +37,7 @@ enum State {
     Checking,
     Available(Release),
     Downloading,
-    UpToDate,
+    UpToDate(Release),
     Installed,
     Error(String),
 }
@@ -40,6 +46,7 @@ pub struct UpdateMenu {
     state: State,
     worker: Option<Receiver<Result<ResultMessage, String>>>,
     revision: u64,
+    scroll: usize,
 }
 
 impl Default for UpdateMenu {
@@ -48,6 +55,7 @@ impl Default for UpdateMenu {
             state: State::Checking,
             worker: None,
             revision: 1,
+            scroll: 0,
         }
     }
 }
@@ -56,6 +64,7 @@ impl UpdateMenu {
     pub fn open(&mut self, root: Option<&Path>) {
         self.revision += 1;
         self.state = State::Checking;
+        self.scroll = 0;
         if root.is_none() || !cfg!(feature = "device") {
             self.state = State::Error("Updates require Slot on BaseOS".into());
             return;
@@ -67,6 +76,9 @@ impl UpdateMenu {
         let State::Available(release) = &self.state else {
             return;
         };
+        if release.asset.is_none() {
+            return;
+        }
         let Some(root) = root else { return };
         let release = release.clone();
         let root = root.to_path_buf();
@@ -84,8 +96,8 @@ impl UpdateMenu {
         };
         self.worker = None;
         self.state = match result {
-            Ok(ResultMessage::Checked(Some(release))) => State::Available(release),
-            Ok(ResultMessage::Checked(None)) => State::UpToDate,
+            Ok(ResultMessage::Checked(release, false)) => State::Available(release),
+            Ok(ResultMessage::Checked(release, true)) => State::UpToDate(release),
             Ok(ResultMessage::Installed) => State::Installed,
             Err(error) => State::Error(error),
         };
@@ -112,6 +124,22 @@ impl UpdateMenu {
         self.revision
     }
 
+    pub fn scroll(&mut self, down: bool) {
+        let notes = match &self.state {
+            State::Available(release) | State::UpToDate(release) => &release.notes,
+            _ => return,
+        };
+        let next = if down {
+            (self.scroll + 1).min(notes.len().saturating_sub(10))
+        } else {
+            self.scroll.saturating_sub(1)
+        };
+        if next != self.scroll {
+            self.scroll = next;
+            self.revision += 1;
+        }
+    }
+
     pub fn face(&self) -> UndoFace {
         let mut face = UndoFace {
             rgba: vec![0; (OUT_W * OUT_H * 4) as usize],
@@ -136,18 +164,57 @@ impl UpdateMenu {
             width,
             [240, 240, 244],
         );
-        let (message, hint) = match &self.state {
-            State::Checking => ("Checking the latest release...".into(), "B Back"),
+        let (message, hint, release) = match &self.state {
+            State::Checking => ("Checking the latest release...".into(), "B Back", None),
             State::Available(release) => (
-                format!("{} is available", release.tag),
-                "A Install   B Back",
+                if release.asset.is_some() {
+                    format!("{} is available", release.tag)
+                } else {
+                    "Release has no Slot binary".into()
+                },
+                if release.asset.is_some() {
+                    "Up/Down Notes   A Install   B Back"
+                } else {
+                    "Up/Down Notes   B Back"
+                },
+                Some(release),
             ),
-            State::Downloading => ("Downloading and verifying...".into(), "Please wait"),
-            State::UpToDate => ("Slot is up to date".into(), "B Back"),
-            State::Installed => ("Update installed. Restarting Slot...".into(), "Please wait"),
-            State::Error(message) => (message.clone(), "A Retry   B Back"),
+            State::Downloading => ("Downloading and verifying...".into(), "Please wait", None),
+            State::UpToDate(release) => (
+                "Slot is up to date".into(),
+                "Up/Down Notes   B Back",
+                Some(release),
+            ),
+            State::Installed => (
+                "Update installed. Restarting Slot...".into(),
+                "Please wait",
+                None,
+            ),
+            State::Error(message) => (message.clone(), "A Retry   B Back", None),
         };
-        text(&mut face, &message, 28, 140, 25.0, width, [240, 240, 244]);
+        text(&mut face, &message, 28, 78, 25.0, width, [240, 240, 244]);
+        if let Some(release) = release {
+            text(
+                &mut face,
+                "RELEASE NOTES",
+                28,
+                124,
+                20.0,
+                width,
+                [185, 190, 200],
+            );
+            for (row, line) in release.notes.iter().skip(self.scroll).take(10).enumerate() {
+                text(
+                    &mut face,
+                    line,
+                    28,
+                    156 + row as i32 * 25,
+                    19.0,
+                    width,
+                    [240, 240, 244],
+                );
+            }
+        }
         text(&mut face, hint, 28, 433, 20.0, width, [240, 240, 244]);
         face
     }
@@ -181,11 +248,8 @@ fn check(current_hash: &str) -> Result<ResultMessage, String> {
         return Err("Could not reach GitHub. Check Wi-Fi.".into());
     }
     let release = parse_release(&output.stdout)?;
-    if release.tag[5..].starts_with(current_hash) {
-        Ok(ResultMessage::Checked(None))
-    } else {
-        Ok(ResultMessage::Checked(Some(release)))
-    }
+    let current = release.tag[5..].starts_with(current_hash);
+    Ok(ResultMessage::Checked(release, current))
 }
 
 fn parse_release(json: &[u8]) -> Result<Release, String> {
@@ -196,29 +260,60 @@ fn parse_release(json: &[u8]) -> Result<Release, String> {
     if hash.len() != 12 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err("Unexpected release tag".into());
     }
+    let notes = wrap_notes(value["body"].as_str().unwrap_or(""));
     let asset = value["assets"]
         .as_array()
         .and_then(|assets| assets.iter().find(|a| a["name"] == ASSET))
-        .ok_or("Release has no Slot binary")?;
-    let size = asset["size"].as_u64().ok_or("Binary size missing")?;
-    if size == 0 || size > MAX_SIZE {
-        return Err("Binary size is invalid".into());
-    }
-    let digest = asset["digest"]
-        .as_str()
-        .and_then(|s| s.strip_prefix("sha256:"))
-        .ok_or("Binary checksum missing")?;
-    if digest.len() != 64 || !digest.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err("Binary checksum is invalid".into());
-    }
+        .map(|asset| -> Result<Asset, String> {
+            let size = asset["size"].as_u64().ok_or("Binary size missing")?;
+            if size == 0 || size > MAX_SIZE {
+                return Err("Binary size is invalid".into());
+            }
+            let digest = asset["digest"]
+                .as_str()
+                .and_then(|s| s.strip_prefix("sha256:"))
+                .ok_or("Binary checksum missing")?;
+            if digest.len() != 64 || !digest.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err("Binary checksum is invalid".into());
+            }
+            Ok(Asset {
+                digest: digest.to_ascii_lowercase(),
+                size,
+            })
+        })
+        .transpose()?;
     Ok(Release {
         tag: tag.into(),
-        digest: digest.to_ascii_lowercase(),
-        size,
+        notes,
+        asset,
     })
 }
 
+fn wrap_notes(body: &str) -> Vec<String> {
+    let Some(font) = slot_ui::text::label_font() else {
+        return vec!["No release notes".into()];
+    };
+    let mut lines = Vec::new();
+    for raw in body.lines() {
+        let line = raw.trim().trim_start_matches('#').trim().replace('`', "");
+        if line.is_empty() {
+            if !lines.is_empty() && lines.last().is_some_and(|s: &String| !s.is_empty()) {
+                lines.push(String::new());
+            }
+        } else {
+            lines.extend(
+                slot_ui::text::fit(font, &line, (OUT_W - 56) as f32, usize::MAX, 19.0, 19.0).lines,
+            );
+        }
+    }
+    if lines.is_empty() {
+        lines.push("No release notes".into());
+    }
+    lines
+}
+
 fn install(root: &Path, release: &Release) -> Result<ResultMessage, String> {
+    let asset = release.asset.as_ref().ok_or("Release has no Slot binary")?;
     let system = root.join("System");
     let target = system.join("slot");
     let backup = system.join("slot.previous");
@@ -246,7 +341,7 @@ fn install(root: &Path, release: &Release) -> Result<ResultMessage, String> {
         if !status.success() {
             return Err("Download failed. Check Wi-Fi.".into());
         }
-        verify(&pending, release)?;
+        verify(&pending, asset)?;
         // A copy keeps System/slot in place if the final rename fails.
         activate(&target, &backup, &pending)?;
         Ok(ResultMessage::Installed)
@@ -265,13 +360,13 @@ fn activate(target: &Path, backup: &Path, pending: &Path) -> Result<(), String> 
     fs::rename(pending, target).map_err(|_| "Could not install update".to_string())
 }
 
-fn verify(path: &Path, release: &Release) -> Result<(), String> {
+fn verify(path: &Path, asset: &Asset) -> Result<(), String> {
     let mut file = File::open(path).map_err(|_| "Downloaded binary missing")?;
     if file
         .metadata()
         .map_err(|_| "Downloaded binary missing")?
         .len()
-        != release.size
+        != asset.size
     {
         return Err("Downloaded binary size differs".into());
     }
@@ -286,7 +381,7 @@ fn verify(path: &Path, release: &Release) -> Result<(), String> {
         .arg(path)
         .output()
         .map_err(|_| "Checksum tool unavailable".to_string())?;
-    if !output.status.success() || !output.stdout.starts_with(release.digest.as_bytes()) {
+    if !output.status.success() || !output.stdout.starts_with(asset.digest.as_bytes()) {
         return Err("Downloaded binary checksum differs".into());
     }
     file.sync_all()
@@ -302,7 +397,12 @@ mod tests {
     fn release_requires_the_expected_asset_and_digest() {
         let data = br#"{"tag_name":"main-012345abcdef","assets":[{"name":"slot-h700","size":20,"digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}"#;
         assert_eq!(parse_release(data).unwrap().tag, "main-012345abcdef");
-        assert!(parse_release(br#"{"tag_name":"main-012345abcdef","assets":[]}"#).is_err());
+        let without_asset = parse_release(br###"{"tag_name":"main-012345abcdef","body":"## Changes\nFixed save bug","assets":[]}"###).unwrap();
+        assert!(without_asset.asset.is_none());
+        assert!(without_asset
+            .notes
+            .iter()
+            .any(|line| line.contains("FIXED SAVE BUG")));
         assert!(parse_release(br#"{"tag_name":"other-012345abcdef","assets":[]}"#).is_err());
     }
 
@@ -318,5 +418,21 @@ mod tests {
         assert_eq!(fs::read(&old).unwrap(), b"new");
         assert_eq!(fs::read(&previous).unwrap(), b"old");
         assert!(!pending.exists());
+    }
+
+    #[test]
+    fn notes_scroll_to_the_last_visible_line() {
+        let mut menu = UpdateMenu::default();
+        menu.state = State::Available(Release {
+            tag: "main-012345abcdef".into(),
+            notes: (0..15).map(|n| format!("line {n}")).collect(),
+            asset: None,
+        });
+        for _ in 0..20 {
+            menu.scroll(true);
+        }
+        assert_eq!(menu.scroll, 5);
+        menu.scroll(false);
+        assert_eq!(menu.scroll, 4);
     }
 }

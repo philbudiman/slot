@@ -293,15 +293,6 @@ impl UpdateMenu {
                     [229, 219, 191, 255],
                 );
             }
-            text(
-                &mut face,
-                "Left Top   Right Bottom   Hold Up/Down",
-                28,
-                408,
-                18.0,
-                width,
-                [185, 190, 200],
-            );
         }
         text(&mut face, hint, 28, 433, 20.0, width, [240, 240, 244]);
         face

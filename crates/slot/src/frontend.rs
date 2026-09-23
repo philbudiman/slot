@@ -238,7 +238,7 @@ impl Frontend {
             carets,
             legend,
         });
-        let hint = hint_face("A", "Check updates");
+        let hint = hint_face("A", "Check for updates");
         let id = compositor.create_texture(hint.w, hint.h, &hint.rgba);
         self.session.app_mut().set_about_hint((id, hint.w, hint.h));
         // The open cart's parts that never change: each socket, the chip seated in each, the

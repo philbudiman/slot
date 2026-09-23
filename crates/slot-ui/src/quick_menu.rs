@@ -59,7 +59,7 @@ impl QuickRow {
             QuickRow::DateTime => "Date & Time",
             QuickRow::Wifi => "Wi-Fi",
             QuickRow::FileTransfer => "File Transfer",
-            QuickRow::About => "About",
+            QuickRow::About => "About / Update",
         }
     }
 

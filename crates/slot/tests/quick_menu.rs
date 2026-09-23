@@ -271,6 +271,17 @@ fn a_on_about_opens_the_label_and_b_comes_back_to_the_menu() {
     assert_eq!(a.quick_menu(), Some(QuickRow::About));
 }
 
+#[test]
+fn update_is_reachable_from_about_and_returns_there() {
+    let (_d, mut a, _) = on_carousel();
+    open_at(&mut a, QuickRow::About);
+    press(&mut a, Btn::A);
+    press(&mut a, Btn::A);
+    assert!(matches!(a.phase(), Phase::Update));
+    press(&mut a, Btn::B);
+    assert!(matches!(a.phase(), Phase::About));
+}
+
 /// The clock screen from first boot, starting where the clock already is: the time on the wall
 /// and the offset already chosen.
 #[test]

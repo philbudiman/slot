@@ -73,6 +73,8 @@ pub struct Frontend {
     wifi_revision: u64,
     transfer_tex: Option<TexId>,
     transfer_revision: u64,
+    update_tex: Option<TexId>,
+    update_revision: u64,
 }
 
 /// Date & Time's value in the quick menu, grey and lit, and the text they were built for.
@@ -146,6 +148,8 @@ impl Frontend {
             wifi_revision: 0,
             transfer_tex: None,
             transfer_revision: 0,
+            update_tex: None,
+            update_revision: 0,
         }
     }
 
@@ -234,6 +238,9 @@ impl Frontend {
             carets,
             legend,
         });
+        let hint = hint_face("A", "Check updates");
+        let id = compositor.create_texture(hint.w, hint.h, &hint.rgba);
+        self.session.app_mut().set_about_hint((id, hint.w, hint.h));
         // The open cart's parts that never change: each socket, the chip seated in each, the
         // blank chip in flight and its shadow, in `Core::ALL` order. At boot like the power
         // menu's rows, so the first frame of a lid coming off is not spent in a rasteriser.
@@ -397,6 +404,10 @@ impl Frontend {
             self.wifi_revision = app.wifi.revision();
             app.wifi_face = Some(upload(compositor, &mut self.wifi_tex, app.wifi.face()));
         }
+        if matches!(app.phase(), Phase::Update) && self.update_revision != app.update.revision() {
+            self.update_revision = app.update.revision();
+            app.update_face = Some(upload(compositor, &mut self.update_tex, app.update.face()));
+        }
         sync_about(self.session.app_mut(), compositor, &mut self.about);
         sync_quick_clock(self.session.app_mut(), compositor, &mut self.quick_clock);
         sync_core_picker(
@@ -474,6 +485,10 @@ impl Frontend {
 
     pub fn restarting(&self) -> bool {
         self.session.app().ready_to_restart()
+    }
+
+    pub fn updated(&self) -> bool {
+        self.session.app().update.installed()
     }
 
     pub fn restart(&mut self) {

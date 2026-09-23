@@ -98,9 +98,11 @@ jobs:
           out="slot-${RELEASE_TAG}"
           zip="$out-h700.zip"
           zip -qry "$zip" "$out"
+          cp "$out/System/slot" slot-h700
           {
             echo "zip=$zip"
             echo "zip_sha=$(sha256sum "$zip" | cut -d' ' -f1)"
+            echo "slot_sha=$(sha256sum slot-h700 | cut -d' ' -f1)"
             # Both cores are built from pinned source commits. Hash the shipped binaries so
             # a card with a corrupted or substituted core can be checked against the announcement.
             echo "mgba_sha=$(sha256sum vendor/mgba_libretro.so | cut -d' ' -f1)"
@@ -119,6 +121,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ steps.meta.outputs.tag }}
           ZIP_SHA: ${{ steps.package.outputs.zip_sha }}
+          SLOT_SHA: ${{ steps.package.outputs.slot_sha }}
           MGBA_SHA: ${{ steps.package.outputs.mgba_sha }}
           MGBA_HEAD: ${{ steps.package.outputs.mgba_head }}
           MGBA_PATCHES: ${{ steps.package.outputs.mgba_patches }}
@@ -142,6 +145,7 @@ jobs:
           Unzip and copy the contents of \`slot-${RELEASE_TAG}/\` onto SD2.
 
           Release ZIP SHA-256: \`${ZIP_SHA}\`
+          Standalone Slot SHA-256: \`${SLOT_SHA}\`
 
           | | |
           |---|---|
@@ -169,6 +173,7 @@ jobs:
           name: ${{ steps.package.outputs.zip }}
           path: |
             ${{ steps.package.outputs.zip }}
+            slot-h700
             notes.md
           if-no-files-found: error
 
@@ -203,13 +208,13 @@ jobs:
             gh release edit "$RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
               --notes-file notes.md
-            gh release upload "$RELEASE_TAG" "$ZIP" \
+            gh release upload "$RELEASE_TAG" "$ZIP" slot-h700 \
               --repo "$GITHUB_REPOSITORY" \
               --clobber
             exit 0
           fi
 
-          gh release create "$RELEASE_TAG" "$ZIP" \
+          gh release create "$RELEASE_TAG" "$ZIP" slot-h700 \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "$RELEASE_TAG" \

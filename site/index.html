@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>slot.</title>
-<meta name="description" content="A bespoke, Game Boy-centric frontend for the Anbernic RG SP.">
-<meta property="og:title" content="slot.">
-<meta property="og:description" content="A bespoke, Game Boy-centric frontend for the Anbernic RG SP.">
+<title>Slot+ — Game Boy frontend for RG SP</title>
+<meta name="description" content="Slot+ is an independently maintained, Game Boy-centric frontend for the Anbernic RG SP, based on Brandon T. Kowalski's original Slot.">
+<meta property="og:title" content="Slot+">
+<meta property="og:description" content="An independently maintained, Game Boy-centric frontend for the Anbernic RG SP, based on the original Slot by Brandon T. Kowalski.">
 <meta property="og:type" content="website">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -20,7 +20,7 @@
      to. The mark sits at the left and is the way back to the hero, which has no tab of its
      own; the row of tabs is centred on the page. -->
 <header class="mast">
-  <a class="mast-mark" href="#hero">slot.</a>
+  <a class="mast-mark" href="#hero">Slot+</a>
   <nav class="tabs" role="tablist" aria-label="Sections">
     <button class="tab" role="tab" id="t-install" aria-controls="install" aria-selected="false" tabindex="-1">Installing</button>
     <button class="tab" role="tab" id="t-guide" aria-controls="guide" aria-selected="false" tabindex="-1">Guide</button>
@@ -33,13 +33,13 @@
 
 <main>
 
-<section class="panel hero" id="hero" aria-label="slot.">
+<section class="panel hero" id="hero" aria-label="Slot+">
   <div class="hero-copy">
-    <h1 class="wordmark">slot.</h1>
-    <p class="tagline">A bespoke, Game Boy-centric frontend for the Anbernic RG SP.</p>
+    <h1 class="wordmark">Slot+</h1>
+    <p class="tagline">A Game Boy-centric frontend for the Anbernic RG SP, based on Brandon T. Kowalski's original Slot. Slot+ keeps its cartridge-inspired design and adds Wi-Fi, browser file transfer, on-device updates, and independent maintenance.</p>
     <div class="actions">
-      <a class="btn" href="https://github.com/BrandonKowalski/slot/releases/latest">Download</a>
-      <a class="btn ghost" href="https://brandonkowalski.github.io/slot-cart-studio/" target="_blank">Cart Studio</a>
+      <a class="btn" href="https://github.com/philbudiman/slot-plus/releases/latest">Download Slot+</a>
+      <a class="btn ghost" href="https://brandonkowalski.github.io/slot-cart-studio/" target="_blank">Original Cart Studio</a>
     </div>
   </div>
 
@@ -57,7 +57,7 @@
     <div class="device pose-hero">
       <div class="dv-lid">
         <div class="dv-front">
-          <svg viewBox="0 0 820 725" role="img" aria-label="An Anbernic RG SP running slot.">
+          <svg viewBox="0 0 820 725" role="img" aria-label="An Anbernic RG SP running Slot+.">
             <use href="#lidArt"/>
           </svg>
           <video class="screen-box hero-screen" width="720" height="480" muted playsinline loop
@@ -88,35 +88,31 @@
     <h2>Installing</h2>
     <ol class="install-steps">
       <li>
-        <h3>Flash AGS-102 to a card</h3>
-        <p>Download the latest release of
-           <a href="https://github.com/BrandonKowalski/AGS-102">AGS-102</a> and write the image to an SD card with
-           something like <a href="https://www.raspberrypi.com/software/">Raspberry Pi Imager</a>.</p>
-        <p>Insert this card into the SD card slot labeled <code>SD1</code>.</p>
+        <h3>Install BaseOS or AGS-102 on SD1</h3>
+        <p><a href="https://github.com/pvaibhav/BaseOS">BaseOS</a> is recommended for new installs. Current releases recognize Slot's standard frontend layout, which Slot+ continues to use; no custom launcher layer is needed. <a href="https://github.com/BrandonKowalski/AGS-102">AGS-102</a> remains supported.</p>
+        <p>Write the OS image to SD1 with a tool such as <a href="https://www.raspberrypi.com/software/">Raspberry Pi Imager</a>.</p>
       </li>
       <li>
-        <h3>Download the latest release</h3>
-        <p>Go fetch the <a href="https://github.com/BrandonKowalski/slot/releases/latest">latest slot release</a> from GitHub.</p>
+        <h3>Download the Slot+ release</h3>
+        <p>Get the latest <a href="https://github.com/philbudiman/slot-plus/releases/latest">H700 <code>-h700.zip</code> archive</a>.</p>
       </li>
       <li>
-        <h3>Copy it onto SD2</h3>
-        <p>Prepare you second SD card by formatting it to <code>FAT32</code> or <code>exFAT</code> with the <code>Master Boot Record (MBR)</code> partition scheme.</p>
-        <p>Once formatted, unzip the release zip you downloaded and copy the contents to the second SD card.</p>
+        <h3>Prepare SD2</h3>
+        <p>Format the second card as <code>FAT32</code> or <code>exFAT</code> with the <code>Master Boot Record (MBR)</code> partition scheme. Extract the archive and copy the contents of its release directory to the card root.</p>
+        <p>The card should contain <code>BIOS/</code>, <code>Games/</code>, <code>Labels/</code>, and <code>System/</code>. The frontend executable remains <code>System/slot</code>.</p>
       </li>
       <li>
         <h3>Add your games</h3>
-        <p>Drop each ROM into its platform's folder, and optionally a label into the matching
-           <code>Labels/</code> folder, named after the ROM.</p>
+        <p>Put ROMs in <code>Games/GBA</code>, <code>Games/GBC</code>, or <code>Games/GB</code>. Optional labels go in the matching <code>Labels/</code> folder; optional BIOS files go in <code>BIOS/</code>. ROMs and BIOS files are not included.</p>
       </li>
       <li>
-        <h3>Put the second card into <code>SD2</code> and boot!</h3>
-        <p>I hope you enjoy using slot!</p>
-        <p>Feedback is welcome and can be provided in a GitHub issue. ❤️</p>
-        <p>Please do reach out before setting out to build a new feature. I am looking to avoid bloating the feature set and will be selective in accepting PRs.</p>
+        <h3>Boot Slot+</h3>
+        <p>Insert the card into the SD slot labeled <code>SD2</code> and start the handheld.</p>
+        <p>Questions and contributions are welcome in the <a href="https://github.com/philbudiman/slot-plus">Slot+ repository</a>.</p>
       </li>
     </ol>
-    <p class="install-note">To update, replace the <code>System/</code>
-       folder on your second card.</p>
+    <p class="install-note">Use the on-device updater from MENU → About → Check for updates, or follow the <a href="https://github.com/philbudiman/slot-plus/blob/main/docs/UPDATES.md">manual update guide</a>.</p>
+    <p class="install-note">More: <a href="https://github.com/philbudiman/slot-plus/blob/main/docs/WIFI.md">Wi-Fi</a> · <a href="https://github.com/philbudiman/slot-plus/blob/main/docs/FILE-TRANSFER.md">Browser file transfer</a>.</p>
   </div>
 </section>
 
@@ -165,7 +161,7 @@
       </li>
       <li class="step" id="eject" data-clip="eject.mp4">
         <h3>Ejecting a Game</h3>
-        <p>Hold <kbd>MENU</kbd> to eject the cart.<br>On exit, slot creates a save state.</p>
+        <p>Hold <kbd>MENU</kbd> to eject the cart.<br>On exit, Slot+ creates a save state.</p>
       </li>
       <li class="step" id="save-states" data-clip="states.mp4">
         <h3>Save States</h3>
@@ -180,7 +176,7 @@
            artwork rather than this step. -->
       <li class="step" id="lid-detection" data-clip="rewind.mp4" data-lid="shut">
         <h3>Lid Detection</h3>
-        <p>Closing the lid writes a save state and turns off the display. Open it again and you're back in the game. Leave it shut for three minutes and slot powers off. It will resume with that save state on the next boot.</p>
+        <p>Closing the lid writes a save state and turns off the display. Open it again and you're back in the game. Leave it shut for three minutes and Slot+ powers off. It will resume with that save state on the next boot.</p>
       </li>
   </ol>
   <div class="stepper">
@@ -331,15 +327,15 @@
     <div class="subpanel" id="faq" role="tabpanel" aria-labelledby="t-faq">
       <dl>
         <div class="qa">
-          <dt>Will slot run anything other than GBA?</dt>
+          <dt>Will Slot+ run anything other than GBA?</dt>
           <dd>Yes. You can bring your GB and GBC carts to the party.</dd>
         </div>
         <div class="qa">
           <dt>This is almost perfect but needs more systems. Will you add them?</dt>
-          <dd>No. I want to recreate the feeling I had playing my GBA SP as a child.</dd>
+          <dd>The system list is intentionally focused, following the design of the original Slot.</dd>
         </div>
         <div class="qa">
-          <dt>Does slot allow you to pair Bluetooth headphones?</dt>
+          <dt>Does Slot+ allow Bluetooth headphones?</dt>
           <dd>No. Use the headphone jack.</dd>
         </div>
       </dl>
@@ -355,7 +351,7 @@
         </div>
         <div class="qa">
           <dt>Do I have to craft them by hand?</dt>
-          <dd>Nah! You can use the slot cart studio.</dd>
+          <dd>The original Slot Cart Studio can help create them.</dd>
         </div>
       </dl>
     </div>
@@ -403,21 +399,18 @@
 <section class="panel endnote" id="credits" role="tabpanel" aria-labelledby="t-credits" hidden>
   <div class="wrap">
     <h2>Credits</h2>
-    <p>Emulation is handled by <a href="https://mgba.io">mGBA</a> and <a href="https://github.com/libretro/gpsp">gpSP</a>, both through <a href="https://www.libretro.com">libretro</a>. The device boots <a href="https://github.com/BrandonKowalski/AGS-102">AGS-102</a>, a purpose-made fork of <a href="https://github.com/pvaibhav/BaseOS">BaseOS</a> by @pvaibhav.</p>
+    <p>Slot+ began as a fork of <a href="https://github.com/BrandonKowalski/slot">Brandon T. Kowalski's original Slot</a> and is now maintained independently at <a href="https://github.com/philbudiman/slot-plus">philbudiman/slot-plus</a>. It preserves the original project's focused design and does not claim original authorship.</p>
+    <p>Emulation uses <a href="https://mgba.io">mGBA</a> and <a href="https://github.com/libretro/gpsp">gpSP</a> through <a href="https://www.libretro.com">libretro</a>. Current <a href="https://github.com/pvaibhav/BaseOS">BaseOS</a> releases recognize Slot's frontend layout, which Slot+ uses; <a href="https://github.com/BrandonKowalski/AGS-102">AGS-102</a> remains supported.</p>
     <p>Type is <a href="https://github.com/googlefonts/opensans">Open Sans</a>, under the SIL Open Font License, and <a href="https://www.nerdfonts.com">Nerd Fonts</a> symbols by Ryan L. McIntyre, under MIT. The panel mask is derived from LCD3x, a public-domain shader by Gigaherz in the libretro shader collection.</p>
-    <p>The cart sounds are a recording of me shoving a cartridge into my childhood GBA.</p>
+    <p>The cartridge sounds are recordings made by Brandon T. Kowalski for the original Slot project.</p>
   </div>
 </section>
 
 <section class="panel endnote" id="disclosure" role="tabpanel" aria-labelledby="t-disclosure" hidden>
   <div class="wrap">
     <h2>AI Disclosure</h2>
-    <p>The Rust frontend was put together by Claude Opus. I reviewed everything that was produced. The RG SP SVGs on this page were also generated by Claude. This documentation is 100% free-range, meatbag prose.</p>
-    <p>The project is extremely low stakes. I wanted a bespoke frontend for my RG SP and thought
-      that something that evokes the feeling of using my GBA SP as a kid would be pretty neat.</p>
-    <p>This is just a glorified wrapper around mGBA and gpSP. Both are the real stars of this show.</p>
-    <p>Use it, don't use it, I don't care.</p>
-    <p>Figured I should share the end result of all the wasted water. ✌🏻</p>
+    <p>The original Slot project discloses that its Rust frontend was developed with assistance from Claude Opus and reviewed by Brandon Kowalski. It also credits Claude for the RG SP SVGs inherited from that project.</p>
+    <p>Slot+ changes have been developed with assistance from OpenAI Codex and reviewed by the maintainer.</p>
   </div>
 </section>
 
@@ -427,7 +420,7 @@
      find. The body is a column and main takes the slack, which is what keeps this on the
      bottom edge without a panel having to be exactly the right height. -->
 <footer class="colophon">
-  <p><a href="https://kowalski.io">From your friend in Ithaca, NY</a></p>
+  <p>Slot+ is maintained independently by <a href="https://github.com/philbudiman">Phillip Budiman</a> and is based on <a href="https://github.com/BrandonKowalski/slot">the original Slot project</a>.</p>
 </footer>
 
 <script src="app.js" defer></script>

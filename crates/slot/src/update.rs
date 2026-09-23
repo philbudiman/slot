@@ -12,7 +12,7 @@ use slot_ui::{UndoFace, OUT_H, OUT_W};
 
 use crate::wifi_menu::{fill, text};
 
-const API: &str = "https://api.github.com/repos/philbudiman/slot/releases/latest";
+const API: &str = "https://api.github.com/repos/philbudiman/slot-plus/releases/latest";
 const ASSET: &str = "slot-h700";
 pub(crate) const MAX_SIZE: u64 = 128 * 1024 * 1024;
 
@@ -77,7 +77,7 @@ impl UpdateMenu {
         self.scroll = 0;
         self.hold = None;
         if root.is_none() || !cfg!(feature = "device") {
-            self.state = State::Error("Updates require Slot on BaseOS".into());
+            self.state = State::Error("Updates require Slot+ on BaseOS or AGS-102".into());
             return;
         }
         self.worker = Some(spawn(|| check(crate::build_info::Build::current().hash)));
@@ -214,7 +214,7 @@ impl UpdateMenu {
         let width = OUT_W as i32 - 56;
         text(
             &mut face,
-            "Update Slot",
+            "Update Slot+",
             28,
             22,
             30.0,
@@ -227,7 +227,7 @@ impl UpdateMenu {
                 if release.asset.is_some() {
                     format!("{} is available", release.tag)
                 } else {
-                    "Release has no Slot binary".into()
+                    "Release has no Slot+ binary".into()
                 },
                 if release.asset.is_some() {
                     "Up/Down Notes   A Install   B Back"
@@ -238,12 +238,12 @@ impl UpdateMenu {
             ),
             State::Downloading => ("Downloading and verifying...".into(), "Please wait", None),
             State::UpToDate(release) => (
-                "Slot is up to date".into(),
+                "Slot+ is up to date".into(),
                 "Up/Down Notes   B Back",
                 Some(release),
             ),
             State::Installed => (
-                "Update installed. Restarting Slot...".into(),
+                "Update installed. Restarting Slot+...".into(),
                 "Please wait",
                 None,
             ),
@@ -392,13 +392,13 @@ fn wrap_notes(body: &str) -> Vec<String> {
 }
 
 fn install(root: &Path, release: &Release) -> Result<ResultMessage, String> {
-    let asset = release.asset.as_ref().ok_or("Release has no Slot binary")?;
+    let asset = release.asset.as_ref().ok_or("Release has no Slot+ binary")?;
     let system = root.join("System");
     let target = system.join("slot");
     let backup = system.join("slot.previous");
     let pending = system.join("slot.download");
     let url = format!(
-        "https://github.com/philbudiman/slot/releases/download/{}/{}",
+        "https://github.com/philbudiman/slot-plus/releases/download/{}/{}",
         release.tag, ASSET
     );
     let result = (|| {
@@ -433,13 +433,13 @@ fn install(root: &Path, release: &Release) -> Result<ResultMessage, String> {
 
 fn activate(target: &Path, backup: &Path, pending: &Path) -> Result<(), String> {
     if fs::symlink_metadata(backup).is_ok_and(|m| !m.is_file()) {
-        return Err("Slot backup is not a regular file".into());
+        return Err("Slot+ backup is not a regular file".into());
     }
     let permissions = fs::metadata(target)
-        .map_err(|_| "Slot binary missing".to_string())?
+        .map_err(|_| "Slot+ binary missing".to_string())?
         .permissions();
-    fs::set_permissions(pending, permissions).map_err(|_| "Could not make Slot executable")?;
-    fs::copy(target, backup).map_err(|_| "Could not back up Slot".to_string())?;
+    fs::set_permissions(pending, permissions).map_err(|_| "Could not make Slot+ executable")?;
+    fs::copy(target, backup).map_err(|_| "Could not back up Slot+".to_string())?;
     File::open(backup)
         .and_then(|f| f.sync_all())
         .map_err(|_| "Could not save backup".to_string())?;
@@ -475,7 +475,7 @@ fn verify_header(file: &mut File) -> Result<(), String> {
         .map_err(|_| "Downloaded binary is incomplete")?;
     if &header[..4] != b"\x7fELF" || header[4] != 2 || header[5] != 1 || header[18..20] != [183, 0]
     {
-        return Err("Downloaded binary is not AArch64 Slot".into());
+        return Err("Downloaded binary is not an AArch64 Slot+ build".into());
     }
     Ok(())
 }
@@ -483,17 +483,17 @@ fn verify_header(file: &mut File) -> Result<(), String> {
 pub(crate) fn install_local(root: &Path) -> Result<(), String> {
     let root = root
         .canonicalize()
-        .map_err(|_| "Slot card is unavailable")?;
+        .map_err(|_| "Slot+ card is unavailable")?;
     let system = root.join("System");
     if system.canonicalize().ok().as_deref() != Some(system.as_path()) {
-        return Err("Slot System folder is unavailable".into());
+        return Err("Slot+ System folder is unavailable".into());
     }
     let target = system.join("slot");
     let pending = system.join("slot.upload");
     if !fs::symlink_metadata(&target).is_ok_and(|m| m.is_file())
         || !fs::symlink_metadata(&pending).is_ok_and(|m| m.is_file())
     {
-        return Err("Test build or Slot binary missing".into());
+        return Err("Test build or Slot+ binary missing".into());
     }
     verify_local(&pending)?;
     activate(&target, &system.join("slot.previous"), &pending)

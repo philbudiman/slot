@@ -76,7 +76,7 @@ impl WifiMenu {
                 self.busy = true;
                 self.status = status.into();
             } else {
-                self.status = "Wi-Fi worker stopped; restart Slot".into();
+                self.status = "Wi-Fi worker stopped; restart Slot+".into();
             }
         }
         self.revision += 1;

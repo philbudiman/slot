@@ -194,7 +194,7 @@ fn serve(
     let host = values("host");
     let expected = address.to_string();
     if host.len() != 1 || host[0] != expected.as_bytes() {
-        return error(stream, 403, "Open the address shown on Slot");
+        return error(stream, 403, "Open the address shown on Slot+");
     }
     let origins = values("origin");
     if origins.len() > 1
@@ -202,7 +202,7 @@ fn serve(
             .first()
             .is_some_and(|s| *s != format!("http://{expected}").as_bytes())
     {
-        return error(stream, 403, "Use the Slot transfer page");
+        return error(stream, 403, "Use the Slot+ transfer page");
     }
     if !values("transfer-encoding").is_empty() {
         return error(stream, 400, "A file size is required");
@@ -409,13 +409,13 @@ fn upload_build(
     shared: &Arc<Mutex<Shared>>,
 ) -> io::Result<()> {
     if length == 0 || length > MAX_FILE {
-        return error(stream, 413, "Choose a nonempty Slot binary up to 128 MB");
+        return error(stream, 413, "Choose a nonempty Slot+ binary up to 128 MB");
     }
     let system = root.join("System");
     if system.canonicalize().ok().as_deref() != Some(system.as_path())
         || !fs::symlink_metadata(system.join("slot")).is_ok_and(|m| m.is_file())
     {
-        return error(stream, 403, "Slot System folder is unavailable");
+        return error(stream, 403, "Slot+ System folder is unavailable");
     }
     let temp = system.join(format!(".slot-upload-{pin}.part"));
     let Ok(mut file) = OpenOptions::new().write(true).create_new(true).open(&temp) else {

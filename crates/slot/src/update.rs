@@ -271,6 +271,28 @@ impl UpdateMenu {
                     [240, 240, 244],
                 );
             }
+            if release.notes.len() > 10 {
+                let track = 245;
+                let thumb = (track * 10 / release.notes.len() as i32).max(20);
+                let travel = track - thumb;
+                let position = travel * self.scroll as i32 / (release.notes.len() as i32 - 10);
+                fill(
+                    &mut face,
+                    OUT_W as i32 - 20,
+                    156,
+                    8,
+                    track,
+                    [65, 70, 85, 255],
+                );
+                fill(
+                    &mut face,
+                    OUT_W as i32 - 20,
+                    156 + position,
+                    8,
+                    thumb,
+                    [229, 219, 191, 255],
+                );
+            }
             text(
                 &mut face,
                 "Left Top   Right Bottom   Hold Up/Down",

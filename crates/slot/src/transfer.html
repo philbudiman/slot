@@ -38,11 +38,59 @@
       font-weight: 800;
       letter-spacing: -2px;
     }
-    .badge {
+    .mode-picker {
+      position: relative;
+    }
+    .mode-toggle {
+      border: 0;
+      padding: 10px 0;
+      background: none;
       font-size: 12px;
       letter-spacing: 1.2px;
       text-transform: uppercase;
       color: #b4b6bd;
+    }
+    .mode-toggle:hover {
+      background: none;
+      color: #ececef;
+    }
+    .chevron {
+      display: inline-block;
+      margin-left: 8px;
+      border-left: 4px solid transparent;
+      border-right: 4px solid transparent;
+      border-top: 5px solid currentColor;
+      vertical-align: middle;
+    }
+    .mode-menu {
+      display: none;
+      position: absolute;
+      top: 100%;
+      right: 0;
+      z-index: 1;
+      min-width: 210px;
+      padding: 6px;
+      border: 1px solid #45474f;
+      border-radius: 9px;
+      background: #292b31;
+      box-shadow: 0 10px 24px #0008;
+    }
+    .mode-picker:hover .mode-menu,
+    .mode-picker:focus-within .mode-menu {
+      display: block;
+    }
+    .mode-menu button {
+      display: block;
+      width: 100%;
+      border: 0;
+      padding: 10px;
+      background: none;
+      text-align: left;
+      white-space: nowrap;
+    }
+    .mode-menu button:hover,
+    .mode-menu button[aria-current="page"] {
+      background: #383b43;
     }
     h1 {
       font-size: 28px;
@@ -228,7 +276,7 @@
       .size {
         display: none;
       }
-      .badge {
+      .mode-toggle {
         font-size: 10px;
       }
     }
@@ -258,12 +306,20 @@
   <main>
     <header>
       <div class="brand">slot.</div>
-      <span class="badge">Local file transfer</span>
+      <div class="mode-picker">
+        <button class="mode-toggle" id="mode-toggle" type="button" aria-haspopup="true">
+          <span id="mode-label">Local file transfer</span><span class="chevron" aria-hidden="true"></span>
+        </button>
+        <div class="mode-menu" id="mode-menu">
+          <button type="button" data-mode="transfer" aria-current="page">Local file transfer</button>
+          <button type="button" data-mode="build">Install a test build</button>
+        </div>
+      </div>
     </header>
     <div id="status" role="status" aria-live="polite"></div>
     <section id="login" class="card">
       <h1>A little less card swapping.</h1>
-      <p>Enter the code on your handheld to open its game and label folders.</p>
+      <p id="login-description">Enter the code on your handheld to open its game and label folders.</p>
       <form id="login-form">
         <label for="pin">Transfer code</label
         ><input
@@ -325,7 +381,9 @@
         <span id="count" class="size"></span>
       </div>
       <div id="list"></div>
-      <div class="card" style="margin-top: 32px">
+    </section>
+    <section id="build" hidden>
+      <div class="card">
         <h2>Install a test build</h2>
         <p>Choose the standalone <code>slot-h700</code> binary from a branch build. Confirm installation on your handheld after the upload.</p>
         <button id="build-choose" class="primary">Choose Slot binary</button>
@@ -346,11 +404,29 @@
     const $ = (id) => document.getElementById(id);
     let pin = "",
       busy = false,
-      currentFiles = [];
+      currentFiles = [],
+      connected = false,
+      mode = "transfer";
     const maxSize = 128 * 1024 * 1024;
     function message(text, error = false) {
       $("status").textContent = text;
       $("status").classList.toggle("error", error);
+    }
+    function showMode(next) {
+      mode = next;
+      $("mode-label").textContent = next === "transfer" ? "Local file transfer" : "Install a test build";
+      $("login-description").textContent = next === "transfer"
+        ? "Enter the code on your handheld to open its game and label folders."
+        : "Enter the code on your handheld to upload a test build.";
+      $("transfer").hidden = !connected || next !== "transfer";
+      $("build").hidden = !connected || next !== "build";
+      for (const option of document.querySelectorAll("[data-mode]")) {
+        if (option.dataset.mode === next) option.setAttribute("aria-current", "page");
+        else option.removeAttribute("aria-current");
+      }
+      if (connected) message(next === "transfer"
+        ? "Choose a folder, then drop your files."
+        : "Choose the standalone Slot binary from a branch build.");
     }
     function url(route, name, replace = false) {
       const q = new URLSearchParams({ dir: $("folder").value });
@@ -365,7 +441,8 @@
     }
     function lock(value) {
       busy = value;
-      for (const id of ["folder", "refresh", "choose", "build-choose"]) $(id).disabled = value;
+      for (const id of ["folder", "refresh", "choose", "build-choose", "mode-toggle"]) $(id).disabled = value;
+      for (const option of document.querySelectorAll("[data-mode]")) option.disabled = value;
       document
         .querySelectorAll("#list button")
         .forEach((b) => (b.disabled = value));
@@ -584,10 +661,10 @@
       try {
         await refresh();
         $("login").hidden = true;
-        $("transfer").hidden = false;
+        connected = true;
+        showMode(mode);
         $("pin").value = "";
         types();
-        message("Connected. Choose a folder, then drop your files.");
       } catch (e) {
         message(e.message, true);
       } finally {
@@ -621,6 +698,12 @@
     $("files").onchange = () => send([...$("files").files]);
     $("build-choose").onclick = () => $("build-file").click();
     $("build-file").onchange = () => sendBuild($("build-file").files[0]);
+    for (const option of document.querySelectorAll("[data-mode]"))
+      option.onclick = () => {
+        if (busy) return;
+        showMode(option.dataset.mode);
+        option.blur();
+      };
     for (const event of ["dragenter", "dragover"])
       $("drop").addEventListener(event, (e) => {
         e.preventDefault();

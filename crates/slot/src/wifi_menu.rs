@@ -390,17 +390,6 @@ impl WifiMenu {
                     [240, 240, 244],
                 );
             }
-            if !self.saved_view {
-                text(
-                    &mut face,
-                    "SFTP: port 22 | user root | your BaseOS password",
-                    28,
-                    391,
-                    18.0,
-                    content_width,
-                    [185, 190, 200],
-                );
-            }
             text(
                 &mut face,
                 if self.busy {

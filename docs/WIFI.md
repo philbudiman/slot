@@ -18,11 +18,11 @@ Visible open and WPA/WPA2 personal networks are supported, including WPA2/WPA3 t
 
 Desktop builds display an explanatory message and never change the computer's network.
 
-## SFTP access
+## Optional SFTP access
 
-For advanced, manual transfers, connect your computer to the same local network, keep the handheld awake, and use an SFTP client with the displayed IP, port **22**, username **root**, and the password configured in the OS (`root` by default). The card is mounted at `/mnt/sdcard`; GBA games go in `Games/GBA` and labels in `Labels/GBA`. Restart Slot+ after adding games.
+Use [File Transfer](FILE-TRANSFER.md) for normal game and label transfers. It is built into Slot+ and runs only while its screen is open.
 
-For normal file transfers, use [File Transfer](FILE-TRANSFER.md) from another device on the same LAN.
+Slot+ does not start or check an SFTP server. If BaseOS has its SSH/SFTP service enabled, advanced users can connect from the same local network using the displayed IP, port **22**, username **root**, and the password configured in the OS. The card is mounted at `/mnt/sdcard`. Restart Slot+ after adding games.
 
 ## Persistence and security
 

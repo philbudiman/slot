@@ -14,10 +14,12 @@ const KEYS: [&str; 3] = [
 pub struct WifiMenu {
     service: Option<Service>,
     pub networks: Vec<Network>,
+    pub saved: Vec<String>,
     pub status: String,
     pub row: usize,
     pub busy: bool,
     enabled: bool,
+    saved_view: bool,
     editing: Option<Network>,
     password: String,
     key: usize,
@@ -31,10 +33,12 @@ impl Default for WifiMenu {
         Self {
             service: None,
             networks: Vec::new(),
+            saved: Vec::new(),
             status: "Wi-Fi requires BaseOS on the handheld".into(),
             row: 0,
             busy: false,
             enabled: true,
+            saved_view: false,
             editing: None,
             password: String::new(),
             key: 0,
@@ -54,7 +58,7 @@ impl WifiMenu {
             if !self.enabled {
                 self.request(Request::Disable, "Turning Wi-Fi off...");
             } else if wifi::auto_connect(root) {
-                self.request(Request::Reconnect, "Connecting to saved network...");
+                self.request(Request::Reconnect, "Connecting to a saved network...");
             }
         }
     }
@@ -63,6 +67,7 @@ impl WifiMenu {
     }
     pub fn open(&mut self) {
         self.row = 0;
+        self.saved_view = false;
         self.editing = None;
         self.password.clear();
         if !self.busy && self.enabled {
@@ -92,7 +97,12 @@ impl WifiMenu {
             if let Some(networks) = snapshot.networks {
                 self.networks = networks;
             }
-            self.row = self.row.min(self.networks.len() + 2);
+            self.saved = snapshot.saved;
+            self.row = self.row.min(if self.saved_view {
+                self.saved.len().saturating_sub(1)
+            } else {
+                self.networks.len() + 1
+            });
             self.revision += 1;
             self.checked = Instant::now();
         }
@@ -113,6 +123,11 @@ impl WifiMenu {
         if button == Btn::B {
             if self.editing.take().is_some() {
                 self.password.clear();
+                return false;
+            }
+            if self.saved_view {
+                self.saved_view = false;
+                self.row = 1;
                 return false;
             }
             return true;
@@ -149,21 +164,42 @@ impl WifiMenu {
             }
             return false;
         }
+        if self.saved_view {
+            match button {
+                Btn::Up => self.row = self.row.saturating_sub(1),
+                Btn::Down => self.row = (self.row + 1).min(self.saved.len().saturating_sub(1)),
+                Btn::A if !self.enabled => self.status = "Turn Wi-Fi on first".into(),
+                Btn::A => {
+                    if let Some(ssid) = self.saved.get(self.row).cloned() {
+                        self.request(Request::ConnectSaved(ssid), "Connecting to saved network...");
+                    }
+                }
+                Btn::X => {
+                    if let Some(ssid) = self.saved.get(self.row).cloned() {
+                        self.request(Request::ForgetSaved(ssid), "Forgetting saved network...");
+                    }
+                }
+                _ => {}
+            }
+            return false;
+        }
         match button {
             Btn::Up => self.row = self.row.saturating_sub(1),
-            Btn::Down => self.row = (self.row + 1).min(self.networks.len() + 2),
+            Btn::Down => self.row = (self.row + 1).min(self.networks.len() + 1),
             Btn::X if !self.enabled => self.status = "Turn Wi-Fi on first".into(),
             Btn::X => self.request(Request::Scan, "Scanning for networks..."),
-            Btn::A if !self.enabled && self.row != 0 && self.row != 2 => {
+            Btn::A if !self.enabled && self.row > 1 => {
                 self.status = "Turn Wi-Fi on first".into();
             }
             Btn::A => match self.row {
                 0 if self.enabled => self.request(Request::Disable, "Turning Wi-Fi off..."),
                 0 => self.request(Request::Enable, "Turning Wi-Fi on..."),
-                1 => self.request(Request::Reconnect, "Connecting to saved network..."),
-                2 => self.request(Request::Forget, "Forgetting saved network..."),
+                1 => {
+                    self.saved_view = true;
+                    self.row = 0;
+                }
                 index => {
-                    if let Some(network) = self.networks.get(index - 3).cloned() {
+                    if let Some(network) = self.networks.get(index - 2).cloned() {
                         match network.security {
                             Security::Open => self
                                 .request(Request::Connect(network, String::new()), "Connecting..."),
@@ -205,7 +241,7 @@ impl WifiMenu {
         );
         text(
             &mut face,
-            "Wi-Fi",
+            if self.saved_view { "Saved networks" } else { "Wi-Fi" },
             28,
             20,
             30.0,
@@ -284,26 +320,34 @@ impl WifiMenu {
                 [240, 240, 244],
             );
         } else {
-            let mut rows = vec![
-                format!("Wi-Fi: {}", if self.enabled { "On" } else { "Off" }),
-                "Reconnect saved network".into(),
-                "Forget saved network".into(),
-            ];
-            rows.extend(self.networks.iter().map(|n| {
-                format!(
-                    "{}  [{}]",
-                    n.ssid,
-                    match n.security {
-                        Security::Open => "Open",
-                        Security::Personal => "Password",
-                        Security::Unsupported => "Unsupported",
-                    }
-                )
-            }));
+            let rows = if self.saved_view {
+                if self.saved.is_empty() {
+                    vec!["No saved networks".into()]
+                } else {
+                    self.saved.clone()
+                }
+            } else {
+                let mut rows = vec![
+                    format!("Wi-Fi: {}", if self.enabled { "On" } else { "Off" }),
+                    "Saved networks".into(),
+                ];
+                rows.extend(self.networks.iter().map(|n| {
+                    format!(
+                        "{}  [{}]",
+                        n.ssid,
+                        match n.security {
+                            Security::Open => "Open",
+                            Security::Personal => "Password",
+                            Security::Unsupported => "Unsupported",
+                        }
+                    )
+                }));
+                rows
+            };
             let first = self.row.saturating_sub(5);
             for (i, label) in rows.iter().enumerate().skip(first).take(6) {
                 let y = 105 + (i - first) as i32 * 46;
-                if i == self.row {
+                if i == self.row && (!self.saved_view || !self.saved.is_empty()) {
                     fill(
                         &mut face,
                         16,
@@ -323,21 +367,27 @@ impl WifiMenu {
                     [240, 240, 244],
                 );
             }
-            text(
-                &mut face,
-                "SFTP: port 22 | user root | your BaseOS password",
-                28,
-                391,
-                18.0,
-                content_width,
-                [185, 190, 200],
-            );
+            if !self.saved_view {
+                text(
+                    &mut face,
+                    "SFTP: port 22 | user root | your BaseOS password",
+                    28,
+                    391,
+                    18.0,
+                    content_width,
+                    [185, 190, 200],
+                );
+            }
             text(
                 &mut face,
                 if self.busy {
                     "Working...   B Back"
+                } else if self.saved_view && self.saved.is_empty() {
+                    "B Back"
+                } else if self.saved_view {
+                    "Up/Down Choose   A Connect   B Back   X Forget"
                 } else {
-                    "Up/Down Choose   A Select   X Scan   B Back"
+                    "Up/Down Choose   A Select   B Back   X Scan"
                 },
                 28,
                 433,
@@ -410,17 +460,42 @@ mod tests {
         menu.boot(root.path());
         assert!(!menu.enabled);
         menu.open();
-        menu.row = 1;
+        menu.networks.push(Network {
+            ssid: "Home".into(),
+            signal: -30,
+            security: Security::Open,
+        });
+        menu.row = 2;
         menu.input(Btn::A);
         assert_eq!(menu.status, "Turn Wi-Fi on first");
         menu.input(Btn::X);
         assert_eq!(menu.status, "Turn Wi-Fi on first");
+        menu.row = 1;
+        menu.input(Btn::A);
+        assert!(menu.saved_view);
+        assert!(!menu.input(Btn::B));
+        assert!(!menu.saved_view);
     }
     #[test]
     fn wifi_face_matches_the_compositor_without_rescaling() {
         let face = WifiMenu::default().face();
         assert_eq!((face.w, face.h), (OUT_W, OUT_H));
         assert_eq!(face.rgba.len(), (OUT_W * OUT_H * 4) as usize);
+    }
+    #[test]
+    fn saved_networks_have_their_own_bounded_list() {
+        let mut menu = WifiMenu::default();
+        menu.saved = vec!["Cafe".into(), "home".into()];
+        menu.row = 1;
+        menu.input(Btn::A);
+        assert!(menu.saved_view);
+        assert_eq!(menu.row, 0);
+        menu.input(Btn::Down);
+        menu.input(Btn::Down);
+        assert_eq!(menu.row, 1);
+        assert!(!menu.input(Btn::B));
+        assert_eq!(menu.row, 1);
+        assert!(!menu.saved_view);
     }
     #[test]
     fn keyboard_contains_every_printable_ascii_character() {
@@ -442,7 +517,7 @@ mod tests {
             signal: -30,
             security: Security::Personal,
         });
-        menu.row = 3;
+        menu.row = 2;
         menu.input(Btn::A);
         menu.input(Btn::A);
         assert_eq!(menu.password, "a");

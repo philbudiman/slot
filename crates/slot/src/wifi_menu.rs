@@ -19,6 +19,7 @@ pub struct WifiMenu {
     pub status: String,
     pub row: usize,
     pub busy: bool,
+    checking_status: bool,
     enabled: bool,
     saved_view: bool,
     editing: Option<Network>,
@@ -39,6 +40,7 @@ impl Default for WifiMenu {
             status: "Wi-Fi requires BaseOS on the handheld".into(),
             row: 0,
             busy: false,
+            checking_status: false,
             enabled: true,
             saved_view: false,
             editing: None,
@@ -80,8 +82,10 @@ impl WifiMenu {
     }
     fn request(&mut self, request: Request, status: &str) {
         if let Some(service) = &self.service {
+            let checking_status = matches!(&request, Request::Status);
             if service.send(request) {
                 self.busy = true;
+                self.checking_status = checking_status;
                 self.status = status.into();
             } else {
                 self.status = "Wi-Fi worker stopped; restart Slot+".into();
@@ -100,6 +104,7 @@ impl WifiMenu {
     pub fn poll(&mut self, visible: bool) {
         if let Some(snapshot) = self.service.as_ref().and_then(Service::poll) {
             self.busy = false;
+            self.checking_status = false;
             self.status = snapshot.status;
             self.enabled = snapshot.enabled;
             self.connected = snapshot.connected;
@@ -392,7 +397,7 @@ impl WifiMenu {
             }
             text(
                 &mut face,
-                if self.busy {
+                if self.busy && !self.checking_status {
                     "Working...   B Back"
                 } else if self.saved_view && self.saved.is_empty() {
                     "B Back"
@@ -495,6 +500,17 @@ mod tests {
         let face = WifiMenu::default().face();
         assert_eq!((face.w, face.h), (OUT_W, OUT_H));
         assert_eq!(face.rgba.len(), (OUT_W * OUT_H * 4) as usize);
+    }
+    #[test]
+    fn routine_status_checks_do_not_flash_the_working_footer() {
+        let mut menu = WifiMenu::default();
+        menu.status = "Connected | IP 192.168.1.2".into();
+        let idle = menu.face().rgba;
+        menu.busy = true;
+        menu.checking_status = true;
+        assert_eq!(menu.face().rgba, idle);
+        menu.checking_status = false;
+        assert_ne!(menu.face().rgba, idle);
     }
     #[test]
     fn saved_networks_have_their_own_bounded_list() {

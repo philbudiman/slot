@@ -31,6 +31,7 @@ pub struct Network {
 pub struct Snapshot {
     pub networks: Option<Vec<Network>>,
     pub saved: Vec<String>,
+    pub connected: Option<String>,
     pub status: String,
     pub enabled: bool,
 }
@@ -43,6 +44,7 @@ pub enum Request {
     Connect(Network, String),
     Reconnect,
     ConnectSaved(String),
+    Disconnect,
     Disable,
     ForgetSaved(String),
 }
@@ -86,9 +88,11 @@ impl Service {
                 let mut result = handle(&root, request).unwrap_or_else(|status| Snapshot {
                     networks: None,
                     saved: Vec::new(),
+                    connected: None,
                     status,
                     enabled: enabled(&root),
                 });
+                result.connected = if result.enabled { current_ssid() } else { None };
                 match load_profiles(&root) {
                     Ok(profiles) => result.saved = sorted_names(&profiles),
                     Err(error) => result.status = error,
@@ -334,7 +338,11 @@ fn handle(root: &Path, request: Request) -> Result<Snapshot, String> {
     if !enabled(root)
         && matches!(
             &request,
-            Request::Scan | Request::Connect(_, _) | Request::Reconnect | Request::ConnectSaved(_)
+            Request::Scan
+                | Request::Connect(_, _)
+                | Request::Reconnect
+                | Request::ConnectSaved(_)
+                | Request::Disconnect
         )
     {
         return Err("Turn Wi-Fi on first".into());
@@ -343,6 +351,7 @@ fn handle(root: &Path, request: Request) -> Result<Snapshot, String> {
         Request::Status => Ok(Snapshot {
             networks: None,
             saved: Vec::new(),
+            connected: None,
             status: if enabled(root) {
                 status()?
             } else {
@@ -361,6 +370,7 @@ fn handle(root: &Path, request: Request) -> Result<Snapshot, String> {
             Ok(Snapshot {
                 networks: None,
                 saved: Vec::new(),
+                connected: None,
                 status: status()?,
                 enabled: true,
             })
@@ -372,6 +382,7 @@ fn handle(root: &Path, request: Request) -> Result<Snapshot, String> {
             Ok(Snapshot {
                 networks: Some(parse_scan(&cli(&["scan_results"])?)),
                 saved: Vec::new(),
+                connected: None,
                 status: status()?,
                 enabled: true,
             })
@@ -385,6 +396,7 @@ fn handle(root: &Path, request: Request) -> Result<Snapshot, String> {
             Ok(Snapshot {
                 networks: None,
                 saved: Vec::new(),
+                connected: None,
                 status,
                 enabled: true,
             })
@@ -399,6 +411,7 @@ fn handle(root: &Path, request: Request) -> Result<Snapshot, String> {
             Ok(Snapshot {
                 networks: None,
                 saved: Vec::new(),
+                connected: None,
                 status,
                 enabled: true,
             })
@@ -417,6 +430,7 @@ fn handle(root: &Path, request: Request) -> Result<Snapshot, String> {
             Ok(Snapshot {
                 networks: None,
                 saved: Vec::new(),
+                connected: None,
                 status,
                 enabled: true,
             })
@@ -449,8 +463,21 @@ fn handle(root: &Path, request: Request) -> Result<Snapshot, String> {
             Ok(Snapshot {
                 networks: None,
                 saved: Vec::new(),
+                connected: None,
                 status: message,
                 enabled: enabled(root),
+            })
+        }
+        Request::Disconnect => {
+            if cli(&["ping"]).is_ok_and(|s| s.trim() == "PONG") {
+                clear_runtime_network()?;
+            }
+            Ok(Snapshot {
+                networks: None,
+                saved: Vec::new(),
+                connected: None,
+                status: "Not connected".into(),
+                enabled: true,
             })
         }
         Request::Disable => {
@@ -471,6 +498,7 @@ fn handle(root: &Path, request: Request) -> Result<Snapshot, String> {
             Ok(Snapshot {
                 networks: None,
                 saved: Vec::new(),
+                connected: None,
                 status: "Wi-Fi off".into(),
                 enabled: false,
             })

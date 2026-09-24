@@ -15,6 +15,7 @@ pub struct WifiMenu {
     service: Option<Service>,
     pub networks: Vec<Network>,
     pub saved: Vec<String>,
+    connected: Option<String>,
     pub status: String,
     pub row: usize,
     pub busy: bool,
@@ -34,6 +35,7 @@ impl Default for WifiMenu {
             service: None,
             networks: Vec::new(),
             saved: Vec::new(),
+            connected: None,
             status: "Wi-Fi requires BaseOS on the handheld".into(),
             row: 0,
             busy: false,
@@ -86,11 +88,20 @@ impl WifiMenu {
         }
         self.revision += 1;
     }
+    fn visible_networks(&self) -> impl Iterator<Item = &Network> {
+        self.networks
+            .iter()
+            .filter(|network| Some(network.ssid.as_str()) != self.connected.as_deref())
+    }
+    fn last_row(&self) -> usize {
+        1 + usize::from(self.connected.is_some()) + self.visible_networks().count()
+    }
     pub fn poll(&mut self, visible: bool) {
         if let Some(snapshot) = self.service.as_ref().and_then(Service::poll) {
             self.busy = false;
             self.status = snapshot.status;
             self.enabled = snapshot.enabled;
+            self.connected = snapshot.connected;
             if !self.enabled {
                 self.networks.clear();
             }
@@ -101,7 +112,7 @@ impl WifiMenu {
             self.row = self.row.min(if self.saved_view {
                 self.saved.len().saturating_sub(1)
             } else {
-                self.networks.len() + 1
+                self.last_row()
             });
             self.revision += 1;
             self.checked = Instant::now();
@@ -185,9 +196,12 @@ impl WifiMenu {
         }
         match button {
             Btn::Up => self.row = self.row.saturating_sub(1),
-            Btn::Down => self.row = (self.row + 1).min(self.networks.len() + 1),
+            Btn::Down => self.row = (self.row + 1).min(self.last_row()),
             Btn::X if !self.enabled => self.status = "Turn Wi-Fi on first".into(),
             Btn::X => self.request(Request::Scan, "Scanning for networks..."),
+            Btn::Y if self.row == 2 && self.connected.is_some() => {
+                self.request(Request::Disconnect, "Disconnecting...");
+            }
             Btn::A if !self.enabled && self.row > 1 => {
                 self.status = "Turn Wi-Fi on first".into();
             }
@@ -198,8 +212,13 @@ impl WifiMenu {
                     self.saved_view = true;
                     self.row = 0;
                 }
+                2 if self.connected.is_some() => {}
                 index => {
-                    if let Some(network) = self.networks.get(index - 2).cloned() {
+                    if let Some(network) = self
+                        .visible_networks()
+                        .nth(index - 2 - usize::from(self.connected.is_some()))
+                        .cloned()
+                    {
                         match network.security {
                             Security::Open => self
                                 .request(Request::Connect(network, String::new()), "Connecting..."),
@@ -331,7 +350,10 @@ impl WifiMenu {
                     format!("Wi-Fi: {}", if self.enabled { "On" } else { "Off" }),
                     "Saved networks".into(),
                 ];
-                rows.extend(self.networks.iter().map(|n| {
+                if let Some(ssid) = &self.connected {
+                    rows.push(format!("{ssid}  [Connected]"));
+                }
+                rows.extend(self.visible_networks().map(|n| {
                     format!(
                         "{}  [{}]",
                         n.ssid,
@@ -386,6 +408,8 @@ impl WifiMenu {
                     "B Back"
                 } else if self.saved_view {
                     "Up/Down Choose   A Connect   B Back   X Forget"
+                } else if self.row == 2 && self.connected.is_some() {
+                    "A Select   B Back   X Scan   Y Disconnect"
                 } else {
                     "Up/Down Choose   A Select   B Back   X Scan"
                 },
@@ -496,6 +520,30 @@ mod tests {
         assert!(!menu.input(Btn::B));
         assert_eq!(menu.row, 1);
         assert!(!menu.saved_view);
+    }
+    #[test]
+    fn connected_network_stays_above_scan_results_without_a_duplicate() {
+        let mut menu = WifiMenu::default();
+        menu.connected = Some("Home".into());
+        for ssid in ["Cafe", "Home"] {
+            menu.networks.push(Network {
+                ssid: ssid.into(),
+                signal: -30,
+                security: Security::Open,
+            });
+        }
+        assert_eq!(
+            menu.visible_networks()
+                .map(|n| n.ssid.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Cafe"]
+        );
+        assert_eq!(menu.last_row(), 3);
+        menu.row = 2;
+        menu.input(Btn::A);
+        assert_eq!(menu.status, "Wi-Fi requires BaseOS on the handheld");
+        menu.input(Btn::Down);
+        assert_eq!(menu.row, 3);
     }
     #[test]
     fn keyboard_contains_every_printable_ascii_character() {

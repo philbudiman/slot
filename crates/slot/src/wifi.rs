@@ -30,6 +30,8 @@ pub struct Network {
 
 pub struct Snapshot {
     pub networks: Option<Vec<Network>>,
+    pub saved: Vec<String>,
+    pub connected: Option<String>,
     pub status: String,
     pub enabled: bool,
 }
@@ -41,8 +43,15 @@ pub enum Request {
     Scan,
     Connect(Network, String),
     Reconnect,
+    ConnectSaved(String),
+    Disconnect,
     Disable,
-    Forget,
+    ForgetSaved(String),
+}
+
+struct SavedProfile {
+    ssid: String,
+    block: String,
 }
 
 pub struct Service {
@@ -76,11 +85,18 @@ impl Service {
                     let Ok(request) = requests.recv() else { break };
                     request
                 };
-                let result = handle(&root, request).unwrap_or_else(|status| Snapshot {
+                let mut result = handle(&root, request).unwrap_or_else(|status| Snapshot {
                     networks: None,
+                    saved: Vec::new(),
+                    connected: None,
                     status,
                     enabled: enabled(&root),
                 });
+                result.connected = if result.enabled { current_ssid() } else { None };
+                match load_profiles(&root) {
+                    Ok(profiles) => result.saved = sorted_names(&profiles),
+                    Err(error) => result.status = error,
+                }
                 if results.send(result).is_err() {
                     break;
                 }
@@ -104,6 +120,94 @@ pub fn enabled(root: &Path) -> bool {
 }
 pub fn auto_connect(root: &Path) -> bool {
     saved(root) && enabled(root)
+}
+
+fn load_profiles(root: &Path) -> Result<Vec<SavedProfile>, String> {
+    let config = match fs::read_to_string(root.join(PROFILE)) {
+        Ok(config) => config,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(_) => return Err("Cannot read saved networks".into()),
+    };
+    parse_profiles(&config)
+}
+
+fn parse_profiles(config: &str) -> Result<Vec<SavedProfile>, String> {
+    let header = format!("ctrl_interface={CONTROL}\nupdate_config=0\n");
+    let mut rest = config
+        .strip_prefix(&header)
+        .ok_or("Cannot read saved networks")?;
+    let mut profiles: Vec<SavedProfile> = Vec::new();
+    while !rest.is_empty() {
+        let body = rest
+            .strip_prefix("network={\n")
+            .ok_or("Cannot read saved networks")?;
+        let (fields, next) = body.split_once("}\n").ok_or("Cannot read saved networks")?;
+        let hex = fields
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("ssid="))
+            .ok_or("Cannot read saved networks")?;
+        if hex.is_empty() || hex.len() > 64 || hex.len() % 2 != 0 {
+            return Err("Cannot read saved networks".into());
+        }
+        let bytes: Result<Vec<u8>, _> = hex
+            .as_bytes()
+            .chunks_exact(2)
+            .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap_or(""), 16))
+            .collect();
+        let ssid = String::from_utf8(bytes.map_err(|_| "Cannot read saved networks")?)
+            .map_err(|_| "Cannot read saved networks")?;
+        if ssid.chars().any(char::is_control) || profiles.iter().any(|p| p.ssid == ssid) {
+            return Err("Cannot read saved networks".into());
+        }
+        profiles.push(SavedProfile {
+            ssid,
+            block: format!("network={{\n{fields}}}\n"),
+        });
+        rest = next;
+    }
+    Ok(profiles)
+}
+
+fn render_profiles(profiles: &[SavedProfile]) -> String {
+    let mut config = format!("ctrl_interface={CONTROL}\nupdate_config=0\n");
+    for profile in profiles {
+        config.push_str(&profile.block);
+    }
+    config
+}
+
+fn sorted_names(profiles: &[SavedProfile]) -> Vec<String> {
+    let mut names: Vec<_> = profiles.iter().map(|p| p.ssid.clone()).collect();
+    names.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()).then(a.cmp(b)));
+    names
+}
+
+fn add_profile(root: &Path, network: &Network, profile: &str) -> Result<String, String> {
+    let mut profiles = load_profiles(root)?;
+    profiles.retain(|p| p.ssid != network.ssid);
+    profiles.push(SavedProfile {
+        ssid: network.ssid.clone(),
+        block: profile
+            .strip_prefix(&format!("ctrl_interface={CONTROL}\nupdate_config=0\n"))
+            .unwrap()
+            .to_string(),
+    });
+    Ok(render_profiles(&profiles))
+}
+
+fn forget_profile(root: &Path, ssid: &str) -> Result<Vec<SavedProfile>, String> {
+    let mut profiles = load_profiles(root)?;
+    let old_len = profiles.len();
+    profiles.retain(|p| p.ssid != ssid);
+    if profiles.len() == old_len {
+        return Err("Saved network not found".into());
+    }
+    if profiles.is_empty() {
+        remove(&root.join(PROFILE))?;
+    } else {
+        private_write(&root.join(PROFILE), render_profiles(&profiles).as_bytes())?;
+    }
+    Ok(profiles)
 }
 
 fn command(program: &str, args: &[&str], seconds: u64) -> Result<String, String> {
@@ -234,7 +338,11 @@ fn handle(root: &Path, request: Request) -> Result<Snapshot, String> {
     if !enabled(root)
         && matches!(
             &request,
-            Request::Scan | Request::Connect(_, _) | Request::Reconnect
+            Request::Scan
+                | Request::Connect(_, _)
+                | Request::Reconnect
+                | Request::ConnectSaved(_)
+                | Request::Disconnect
         )
     {
         return Err("Turn Wi-Fi on first".into());
@@ -242,10 +350,14 @@ fn handle(root: &Path, request: Request) -> Result<Snapshot, String> {
     match request {
         Request::Status => Ok(Snapshot {
             networks: None,
-            status: if enabled(root) {
+            saved: Vec::new(),
+            connected: None,
+            status: if !enabled(root) {
+                "Wi-Fi off".into()
+            } else if cli(&["ping"]).is_ok_and(|s| s.trim() == "PONG") {
                 status()?
             } else {
-                "Wi-Fi off".into()
+                "Press X to scan networks".into()
             },
             enabled: enabled(root),
         }),
@@ -259,6 +371,8 @@ fn handle(root: &Path, request: Request) -> Result<Snapshot, String> {
             remove(&root.join(DISABLED))?;
             Ok(Snapshot {
                 networks: None,
+                saved: Vec::new(),
+                connected: None,
                 status: status()?,
                 enabled: true,
             })
@@ -269,57 +383,111 @@ fn handle(root: &Path, request: Request) -> Result<Snapshot, String> {
             thread::sleep(Duration::from_secs(3));
             Ok(Snapshot {
                 networks: Some(parse_scan(&cli(&["scan_results"])?)),
+                saved: Vec::new(),
+                connected: None,
                 status: status()?,
                 enabled: true,
             })
         }
         Request::Connect(network, password) => {
             let profile = profile(&network, &password)?;
+            let saved_config = add_profile(root, &network, &profile)?;
             ensure()?;
-            let previous = fs::read(RUNTIME).unwrap_or_default();
-            let was_connected = status()?.starts_with("Connected");
-            match connect(&profile) {
-                Ok(status) => {
-                    private_write(&root.join(PROFILE), profile.as_bytes())?;
-                    Ok(Snapshot {
-                        networks: None,
-                        status,
-                        enabled: true,
-                    })
-                }
-                Err(error) => {
-                    // Failed passwords must not replace a working saved network.
-                    if was_connected && previous.windows(8).any(|w| w == b"network=") {
-                        let _ = connect(&String::from_utf8_lossy(&previous));
-                    } else {
-                        let _ = private_write(Path::new(RUNTIME), &previous);
-                        let _ = ok(&["reconfigure"]);
-                        let _ = ok(&["disconnect"]);
-                    }
-                    Err(error)
-                }
-            }
-        }
-        Request::Reconnect => {
-            let profile = fs::read_to_string(root.join(PROFILE))
-                .map_err(|_| "No saved network; select one below".to_string())?;
-            ensure()?;
-            let status = connect(&profile)?;
+            let status = connect_preserving_current(&profile)?;
+            private_write(&root.join(PROFILE), saved_config.as_bytes())?;
             Ok(Snapshot {
                 networks: None,
+                saved: Vec::new(),
+                connected: None,
                 status,
                 enabled: true,
             })
         }
-        Request::Disable | Request::Forget => {
+        Request::Reconnect => {
+            let profiles = load_profiles(root)?;
+            if profiles.is_empty() {
+                return Err("No saved networks; select one below".into());
+            }
+            ensure()?;
+            let status = connect(&render_profiles(&profiles))?;
+            Ok(Snapshot {
+                networks: None,
+                saved: Vec::new(),
+                connected: None,
+                status,
+                enabled: true,
+            })
+        }
+        Request::ConnectSaved(ssid) => {
+            let profiles = load_profiles(root)?;
+            let profile = profiles
+                .iter()
+                .find(|p| p.ssid == ssid)
+                .ok_or("Saved network not found")?;
+            ensure()?;
+            let status = connect_preserving_current(&format!(
+                "ctrl_interface={CONTROL}\nupdate_config=0\n{}",
+                profile.block
+            ))?;
+            Ok(Snapshot {
+                networks: None,
+                saved: Vec::new(),
+                connected: None,
+                status,
+                enabled: true,
+            })
+        }
+        Request::ForgetSaved(ssid) => {
+            let profiles = forget_profile(root, &ssid)?;
+            let mut message = format!("Forgot {ssid}");
+            if enabled(root) && cli(&["ping"]).is_ok_and(|s| s.trim() == "PONG") {
+                let active = current_ssid();
+                let config = render_profiles(&profiles);
+                if profiles.is_empty() || active.is_none() {
+                    clear_runtime_network()?;
+                    message.push_str("; not connected");
+                } else if active.as_deref() == Some(ssid.as_str()) {
+                    message = connect(&config).unwrap_or_else(|_| {
+                        let _ = clear_runtime_network();
+                        format!("Forgot {ssid}; select another network to connect")
+                    });
+                } else {
+                    private_write(Path::new(RUNTIME), config.as_bytes())?;
+                    ok(&["reconfigure"])?;
+                    if current_ssid() != active {
+                        message = connect(&config).unwrap_or_else(|_| {
+                            let _ = clear_runtime_network();
+                            format!("Forgot {ssid}; select another network to connect")
+                        });
+                    }
+                }
+            }
+            Ok(Snapshot {
+                networks: None,
+                saved: Vec::new(),
+                connected: None,
+                status: message,
+                enabled: enabled(root),
+            })
+        }
+        Request::Disconnect => {
+            if cli(&["ping"]).is_ok_and(|s| s.trim() == "PONG") {
+                clear_runtime_network()?;
+            }
+            Ok(Snapshot {
+                networks: None,
+                saved: Vec::new(),
+                connected: None,
+                status: "Not connected".into(),
+                enabled: true,
+            })
+        }
+        Request::Disable => {
             // Only change wlan0 if it belongs to this service.
             if other_wifi_active() {
                 return Err("Another Wi-Fi service is active; end multiplayer first".into());
             }
             private_write(&root.join(DISABLED), b"disabled\n")?;
-            if matches!(request, Request::Forget) {
-                remove(&root.join(PROFILE))?;
-            }
             if cli(&["ping"]).is_ok_and(|s| s.trim() == "PONG") {
                 let _ = ok(&["disconnect"]);
             }
@@ -331,6 +499,8 @@ fn handle(root: &Path, request: Request) -> Result<Snapshot, String> {
             block_radio()?;
             Ok(Snapshot {
                 networks: None,
+                saved: Vec::new(),
+                connected: None,
                 status: "Wi-Fi off".into(),
                 enabled: false,
             })
@@ -344,6 +514,48 @@ fn remove(path: &Path) -> Result<(), String> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(_) => Err("Cannot update Wi-Fi settings".into()),
     }
+}
+
+fn connect_preserving_current(profile: &str) -> Result<String, String> {
+    let previous = fs::read(RUNTIME).unwrap_or_default();
+    let was_connected = status()?.starts_with("Connected");
+    match connect(profile) {
+        Ok(status) => Ok(status),
+        Err(error) => {
+            // Failed joins must not replace a working connection or its saved credentials.
+            if was_connected && previous.windows(8).any(|w| w == b"network=") {
+                let _ = connect(&String::from_utf8_lossy(&previous));
+            } else {
+                let _ = private_write(Path::new(RUNTIME), &previous);
+                let _ = ok(&["reconfigure"]);
+                let _ = ok(&["disconnect"]);
+            }
+            Err(error)
+        }
+    }
+}
+
+fn current_ssid() -> Option<String> {
+    let response = cli(&["status"]).ok()?;
+    if !response.lines().any(|line| line == "wpa_state=COMPLETED") {
+        return None;
+    }
+    response
+        .lines()
+        .find_map(|line| line.strip_prefix("ssid="))
+        .map(str::to_string)
+}
+
+fn clear_runtime_network() -> Result<(), String> {
+    stop_dhcp()?;
+    let _ = ok(&["disconnect"]);
+    let _ = command("ip", &["addr", "flush", "dev", "wlan0"], 3);
+    private_write(
+        Path::new(RUNTIME),
+        format!("ctrl_interface={CONTROL}\nupdate_config=0\n").as_bytes(),
+    )?;
+    ok(&["reconfigure"])?;
+    ok(&["disconnect"])
 }
 
 fn connect(profile: &str) -> Result<String, String> {
@@ -605,6 +817,57 @@ mod tests {
         assert!(auto_connect(root.path()));
         remove(&root.path().join(PROFILE)).unwrap();
         assert!(!saved(root.path()));
+    }
+
+    #[test]
+    fn legacy_profile_grows_without_losing_other_saved_networks() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir(root.path().join("System")).unwrap();
+        let network = |ssid: &str| Network {
+            ssid: ssid.into(),
+            signal: -40,
+            security: Security::Open,
+        };
+        let home = network("home");
+        let cafe = network("Cafe");
+        private_write(&root.path().join(PROFILE), profile(&home, "").unwrap().as_bytes())
+            .unwrap();
+        let config = add_profile(root.path(), &cafe, &profile(&cafe, "").unwrap()).unwrap();
+        private_write(&root.path().join(PROFILE), config.as_bytes()).unwrap();
+        assert_eq!(
+            sorted_names(&load_profiles(root.path()).unwrap()),
+            vec!["Cafe".to_string(), "home".to_string()]
+        );
+
+        let secured_home = Network {
+            security: Security::Personal,
+            ..home
+        };
+        let updated = add_profile(
+            root.path(),
+            &secured_home,
+            &profile(&secured_home, "password123").unwrap(),
+        )
+        .unwrap();
+        assert_eq!(parse_profiles(&updated).unwrap().len(), 2);
+        assert!(updated.contains("key_mgmt=WPA-PSK"));
+        private_write(&root.path().join(PROFILE), updated.as_bytes()).unwrap();
+        private_write(&root.path().join(DISABLED), b"disabled\n").unwrap();
+        handle(root.path(), Request::ForgetSaved("Cafe".into())).unwrap();
+        assert_eq!(
+            sorted_names(&load_profiles(root.path()).unwrap()),
+            vec!["home".to_string()]
+        );
+        handle(root.path(), Request::ForgetSaved("home".into())).unwrap();
+        assert!(!saved(root.path()));
+
+        private_write(&root.path().join(PROFILE), b"invalid profile").unwrap();
+        assert!(add_profile(root.path(), &cafe, &profile(&cafe, "").unwrap()).is_err());
+        assert!(forget_profile(root.path(), "Cafe").is_err());
+        assert_eq!(
+            fs::read(root.path().join(PROFILE)).unwrap(),
+            b"invalid profile".to_vec()
+        );
     }
 
     #[test]

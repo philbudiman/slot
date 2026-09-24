@@ -409,7 +409,7 @@ impl WifiMenu {
                 } else if self.saved_view {
                     "Up/Down Choose   A Connect   B Back   X Forget"
                 } else if self.row == 2 && self.connected.is_some() {
-                    "A Select   B Back   X Scan   Y Disconnect"
+                    "Up/Down Choose   A Select   B Back   X Scan   Y Disconnect"
                 } else {
                     "Up/Down Choose   A Select   B Back   X Scan"
                 },

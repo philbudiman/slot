@@ -214,11 +214,11 @@ impl WifiMenu {
                 }
                 2 if self.connected.is_some() => {}
                 index => {
-                    if let Some(network) = self
+                    let network = self
                         .visible_networks()
                         .nth(index - 2 - usize::from(self.connected.is_some()))
-                        .cloned()
-                    {
+                        .cloned();
+                    if let Some(network) = network {
                         match network.security {
                             Security::Open => self
                                 .request(Request::Connect(network, String::new()), "Connecting..."),

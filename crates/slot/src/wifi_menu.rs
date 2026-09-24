@@ -69,11 +69,12 @@ impl WifiMenu {
     }
     pub fn open(&mut self) {
         self.row = 0;
+        self.networks.clear();
         self.saved_view = false;
         self.editing = None;
         self.password.clear();
         if !self.busy && self.enabled {
-            self.request(Request::Scan, "Scanning for networks...");
+            self.request(Request::Status, "Checking Wi-Fi status...");
         }
         self.revision += 1;
     }
@@ -544,6 +545,20 @@ mod tests {
         assert_eq!(menu.status, "Wi-Fi requires BaseOS on the handheld");
         menu.input(Btn::Down);
         assert_eq!(menu.row, 3);
+    }
+    #[test]
+    fn opening_wifi_keeps_the_connection_but_clears_old_scan_results() {
+        let mut menu = WifiMenu::default();
+        menu.connected = Some("Home".into());
+        menu.networks.push(Network {
+            ssid: "Cafe".into(),
+            signal: -30,
+            security: Security::Open,
+        });
+        menu.open();
+        assert_eq!(menu.connected.as_deref(), Some("Home"));
+        assert!(menu.networks.is_empty());
+        assert_eq!(menu.last_row(), 2);
     }
     #[test]
     fn keyboard_contains_every_printable_ascii_character() {

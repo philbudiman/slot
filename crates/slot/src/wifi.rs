@@ -352,10 +352,12 @@ fn handle(root: &Path, request: Request) -> Result<Snapshot, String> {
             networks: None,
             saved: Vec::new(),
             connected: None,
-            status: if enabled(root) {
+            status: if !enabled(root) {
+                "Wi-Fi off".into()
+            } else if cli(&["ping"]).is_ok_and(|s| s.trim() == "PONG") {
                 status()?
             } else {
-                "Wi-Fi off".into()
+                "Press X to scan networks".into()
             },
             enabled: enabled(root),
         }),

@@ -4,7 +4,7 @@ Wi-Fi is supported in Slot+ on current BaseOS releases, and AGS-102 remains supp
 
 ## Connecting
 
-From Slot+'s cartridge shelf, press MENU and open **Wi-Fi**. The first row turns Wi-Fi on or off. When on, the menu scans for visible networks. Press **X** to scan again, then select a network and press **A**.
+From Slot+'s cartridge shelf, press MENU and open **Wi-Fi**. The first row turns Wi-Fi on or off. Press **X** to scan for visible networks, then select a network and press **A**. Opening the page checks connection status but does not scan.
 
 For a password-protected network, use the D-pad and A to type. **Y** changes between lowercase, uppercase, and symbols; **X** deletes a character; **START** connects; **B** cancels. Passwords are case-sensitive. The `SP` key inserts a space. All printable ASCII characters are available. Open networks connect immediately.
 
